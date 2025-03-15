@@ -164,17 +164,25 @@ document.addEventListener('DOMContentLoaded', () => {
       addLog(`✅ Ligação iniciada para ${lead.name}`);
       
       // Aguarda a ligação terminar verificando o status
+      let wasUnavailable = false;
       await new Promise((resolve) => {
         const checkStatus = () => {
           chrome.runtime.sendMessage({ 
             action: 'checkStatus',
             tabId: response.tabId
           }, (result) => {
-            if (result.available) {
+            // Se estava indisponível e agora está disponível, ligação terminou
+            if (wasUnavailable && result.available) {
               resolve();
-            } else {
-              setTimeout(checkStatus, 1000);
+              return;
             }
+            
+            // Se está indisponível, marca que entrou em ligação
+            if (!result.available) {
+              wasUnavailable = true;
+            }
+            
+            setTimeout(checkStatus, 1000);
           });
         };
         checkStatus();
@@ -182,7 +190,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       addLog(`📱 Ligação finalizada para ${lead.name}`);
       
-      // Busca o tempo configurado no storage
+      // Busca o tempo configurado no storage e agenda próxima ligação
       chrome.storage.sync.get(['waitTime'], (result) => {
         const waitSeconds = (result.waitTime || 30) * 1; // Converte para segundos
         currentLeadIndex = index + 1;
