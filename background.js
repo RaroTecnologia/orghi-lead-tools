@@ -135,26 +135,41 @@ async function makeCall(phone) {
           const monitorCallStatus = () => {
             return new Promise((resolve) => {
               let wasInCall = false;
+              let checkCount = 0;
+              const maxChecks = 10; // Máximo de 10 verificações (5 segundos)
               
               const checkStatus = () => {
                 const statusIndicator = document.querySelector('i[data-qa="status-indicator"]');
                 if (!statusIndicator) return setTimeout(checkStatus, 500);
                 
+                checkCount++;
+                
                 // Verifica pelos estados usando as classes
-                const isAvailable = statusIndicator.classList.contains('available');
-                const isInCall = !isAvailable && !statusIndicator.classList.contains('unavailable');
+                const classes = statusIndicator.className;
+                const isAvailable = classes.includes('available');
                 
                 console.log('Status atual:', {
-                  classes: statusIndicator.className,
+                  classes,
                   isAvailable,
-                  isInCall,
-                  wasInCall
+                  wasInCall,
+                  checkCount
                 });
                 
-                if (isInCall) {
-                  console.log('Em chamada...');
+                // Se após 5 segundos não detectou ligação, considera finalizado
+                if (checkCount >= maxChecks && !wasInCall) {
+                  console.log('Tempo máximo atingido sem detectar ligação');
+                  resolve();
+                  return;
+                }
+                
+                // Se estava disponível e agora não está, entrou em ligação
+                if (!isAvailable && !wasInCall) {
+                  console.log('Iniciou chamada - status indisponível');
                   wasInCall = true;
-                } else if (wasInCall && isAvailable) {
+                }
+                
+                // Se estava em ligação e voltou a ficar disponível
+                if (wasInCall && isAvailable) {
                   console.log('Chamada finalizada - status voltou para disponível');
                   resolve();
                   return;

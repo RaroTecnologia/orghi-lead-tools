@@ -165,6 +165,9 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Aguarda a ligação terminar verificando o status
       let wasUnavailable = false;
+      let checkCount = 0;
+      const maxChecks = 10; // Máximo de 10 verificações (5 segundos)
+      
       await new Promise((resolve) => {
         const checkStatus = () => {
           chrome.runtime.sendMessage({ 
@@ -177,21 +180,27 @@ document.addEventListener('DOMContentLoaded', () => {
               return;
             }
 
+            checkCount++;
             addLog(`🔄 Status do discador: ${result.classes}`);
             
-            // Se estava indisponível e agora está disponível, ligação terminou
-            if (wasUnavailable && result.available) {
-              addLog('✅ Detectado fim da ligação');
+            // Se após 5 segundos não detectou ligação, considera finalizado
+            if (checkCount >= maxChecks && !wasUnavailable) {
+              addLog('⚠️ Tempo máximo atingido sem detectar ligação');
               resolve();
               return;
             }
             
-            // Se está indisponível, marca que entrou em ligação
-            if (!result.available) {
-              if (!wasUnavailable) {
-                addLog('📱 Ligação em andamento');
-              }
+            // Se estava disponível e agora não está, entrou em ligação
+            if (!result.available && !wasUnavailable) {
+              addLog('📱 Ligação em andamento');
               wasUnavailable = true;
+            }
+            
+            // Se estava em ligação e voltou a ficar disponível
+            if (wasUnavailable && result.available) {
+              addLog('✅ Detectado fim da ligação');
+              resolve();
+              return;
             }
             
             setTimeout(checkStatus, 1000);
