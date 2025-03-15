@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const leadStatus = document.getElementById('lead-status');
   const leadCount = document.getElementById('lead-count');
   const startDialerButton = document.getElementById('start-dialer');
+  const settingsButton = document.getElementById('settings-button');
   const logsContainer = document.getElementById('logs');
   let waitTimer = null;
   let currentLeads = null;
@@ -13,9 +14,9 @@ document.addEventListener('DOMContentLoaded', () => {
       selectedStatus: leadStatus.value,
       count: leadCount.value,
       logs: Array.from(logsContainer.children).map(log => ({
-        message: log.querySelector('.message').textContent,
+        message: log.querySelector('.log-message').textContent,
         type: log.className.replace('log-entry ', ''),
-        time: log.querySelector('.time').textContent
+        time: log.querySelector('.log-time').textContent
       }))
     };
     console.log('Salvando estado:', state);
@@ -55,8 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
               const logEntry = document.createElement('div');
               logEntry.className = `log-entry ${log.type}`;
               logEntry.innerHTML = `
-                <span class="time">${log.time}</span>
-                <span class="message">${log.message}</span>
+                <span class="log-time">${log.time}</span>
+                <span class="log-message">${log.message}</span>
               `;
               logsContainer.appendChild(logEntry);
             });
@@ -89,10 +90,17 @@ document.addEventListener('DOMContentLoaded', () => {
     logEntry.className = `log-entry ${type}`;
     
     const time = new Date().toLocaleTimeString();
-    logEntry.innerHTML = `
-      <span class="time">[${time}]</span>
-      <span class="message">${message}</span>
-    `;
+    
+    const timeSpan = document.createElement('span');
+    timeSpan.className = 'log-time';
+    timeSpan.textContent = time;
+    
+    const messageSpan = document.createElement('span');
+    messageSpan.className = 'log-message';
+    messageSpan.textContent = message;
+    
+    logEntry.appendChild(timeSpan);
+    logEntry.appendChild(messageSpan);
     
     logsContainer.appendChild(logEntry);
     logsContainer.scrollTop = logsContainer.scrollHeight;
@@ -116,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // Atualiza o último log de timer
       const lastLog = logsContainer.querySelector('.log-entry.timer:last-child');
       if (lastLog) {
-        lastLog.querySelector('.message').textContent = 
+        lastLog.querySelector('.log-message').textContent = 
           `⏳ Aguardando ${formatTime(remainingTime)} para próxima ligação...`;
       }
 
@@ -301,6 +309,11 @@ document.addEventListener('DOMContentLoaded', () => {
         .join('');
       addLog('✅ Status dos leads atualizados');
     }
+  });
+
+  // Event listener para o botão de configurações
+  settingsButton.addEventListener('click', () => {
+    chrome.runtime.openOptionsPage();
   });
 
   // Event listener para o botão de iniciar discador
