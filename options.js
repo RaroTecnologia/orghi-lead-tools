@@ -4,31 +4,32 @@ document.addEventListener('DOMContentLoaded', function() {
     const addWhatsappChannelButton = document.getElementById('addWhatsappChannel');
     const dialerDelayInput = document.getElementById('dialerDelay');
     const threeCXDomainInput = document.getElementById('threeCXDomain');
+    const kommoDomainInput = document.getElementById('kommoDomain');
     const saveAllButton = document.getElementById('saveAll');
     const scanTabsButton = document.getElementById('scanTabs');
     const statusMessageElement = document.getElementById('statusMessage');
     const threeCXStatusElement = document.getElementById('threeCXStatus');
     const debugInfoElement = document.getElementById('debugInfo');
+    const debugModeInput = document.getElementById('debugMode');
 
     // Função para criar um novo campo de canal
     function createChannelField(value = '') {
         const channelGroup = document.createElement('div');
-        channelGroup.className = 'form-group whatsapp-channel';
-        channelGroup.style.display = 'flex';
-        channelGroup.style.gap = '10px';
-        channelGroup.style.alignItems = 'center';
+        channelGroup.className = 'whatsapp-channel';
 
         const input = document.createElement('input');
         input.type = 'text';
         input.className = 'whatsapp-channel-input';
         input.placeholder = 'Ex: Raro';
         input.value = value;
-        input.style.flex = '1';
 
         const removeButton = document.createElement('button');
-        removeButton.textContent = '✕';
         removeButton.className = 'secondary';
-        removeButton.style.padding = '8px 12px';
+        removeButton.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" width="16" height="16">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+        `;
         removeButton.onclick = () => channelGroup.remove();
 
         channelGroup.appendChild(input);
@@ -59,15 +60,18 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Carregar configurações salvas
-    chrome.storage.sync.get(['whatsappChannels', 'dialerDelay', 'threeCXDomain'], (result) => {
+    chrome.storage.sync.get(['whatsappChannels', 'dialerDelay', 'threeCXDomain', 'kommoDomain', 'debugMode'], (result) => {
         // Carrega canais do WhatsApp
         const channels = result.whatsappChannels || [''];
         channels.forEach(channel => {
             whatsappChannelsContainer.appendChild(createChannelField(channel));
         });
 
+        // Carrega outras configurações
         dialerDelayInput.value = result.dialerDelay || '5';
         threeCXDomainInput.value = result.threeCXDomain || '';
+        kommoDomainInput.value = result.kommoDomain || '';
+        debugModeInput.checked = result.debugMode || false;
         
         // Verificar status do 3CX ao carregar
         checkThreeCXStatus();
@@ -121,11 +125,18 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        if (!kommoDomainInput.value) {
+            showStatusMessage('Por favor, preencha o subdomínio do Kommo', true);
+            return;
+        }
+
         // Salvar configurações
         chrome.storage.sync.set({
             whatsappChannels: channels,
             dialerDelay: dialerDelayInput.value,
-            threeCXDomain: threeCXDomainInput.value
+            threeCXDomain: threeCXDomainInput.value,
+            kommoDomain: kommoDomainInput.value,
+            debugMode: debugModeInput.checked
         }, () => {
             showStatusMessage('Configurações salvas com sucesso!');
             checkThreeCXStatus(); // Verificar status após salvar

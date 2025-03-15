@@ -2,18 +2,22 @@
   "manifest_version": 3,
   "name": "Orghi Lead Tools",
   "version": "1.0",
-  "description": "Ferramentas para integração com Kommo e 3CX",
+  "description": "Ferramentas para automação de leads no Kommo",
   "permissions": [
     "storage",
     "tabs",
-    "scripting"
+    "scripting",
+    "activeTab"
   ],
   "host_permissions": [
     "*://*.3cx.cloud/*",
-    "*://*.kommo.com/*"
+    "*://*.3cx.com/*",
+    "*://*.kommo.com/*",
+    "https://*/*"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {
