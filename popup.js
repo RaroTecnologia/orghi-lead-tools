@@ -22,6 +22,11 @@ document.addEventListener('DOMContentLoaded', () => {
     isRunning: false
   };
 
+  // Função para mostrar erros
+  function showError(message) {
+    addLog(`❌ ${message}`, 'error');
+  }
+
   // Função para atualizar o progresso visual
   function updateProgress(newState) {
     // Atualiza o estado local
@@ -173,14 +178,28 @@ document.addEventListener('DOMContentLoaded', () => {
           return { error: 'Navegue para a página de Pipeline no Kommo' };
         }
 
-        // Extrai o código do funil da URL
-        const pipelineId = window.location.pathname.split('/').pop();
+        // Extrai o código do funil da URL completa usando regex melhorado
+        const pipelineMatch = window.location.href.match(/\/leads\/pipeline\/(\d+)/);
+        const pipelineId = pipelineMatch ? pipelineMatch[1] : null;
+        
+        console.log('Debug URL:', {
+          url: window.location.href,
+          pathname: window.location.pathname,
+          pipelineMatch,
+          pipelineId
+        });
+        
+        if (!pipelineId) {
+          return { error: 'ID do funil não encontrado na URL' };
+        }
         
         // Clica no status para filtrar
         const statusElement = document.querySelector(`#status_id_${statusId}`);
         if (!statusElement) {
           return { error: 'Status não encontrado' };
         }
+        
+        statusElement.click();
 
         // Aguarda carregar os leads e retorna
         return new Promise((resolve) => {
@@ -201,6 +220,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 };
               })
               .filter(lead => lead.phone);
+
+            console.log('Debug Leads:', {
+              total: leads.length,
+              pipelineId,
+              firstLead: leads[0]
+            });
 
             resolve({ leads, pipelineId });
           }, 1000);
@@ -288,64 +313,159 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Event listener para o botão de iniciar
   startDialerButton.addEventListener('click', async () => {
-    const status = leadStatus.value;
-    const count = parseInt(leadCount.value);
-
-    if (!status) {
-      addLog('❌ Selecione um status de lead', 'error');
-      return;
-    }
-
-    if (isNaN(count) || count < 1) {
-      addLog('❌ Quantidade de leads inválida', 'error');
-      return;
-    }
-
-    // Primeiro verifica se o 3CX está aberto
-    addLog('🔍 Verificando conexão com 3CX...');
-    
     try {
-      const checkResult = await chrome.runtime.sendMessage({ 
-        action: 'find3CXTab'
+      const statusId = document.getElementById('lead-status').value;
+      const count = document.getElementById('lead-count').value;
+      
+      if (!statusId) {
+        showError('Selecione um status de lead');
+        return;
+      }
+
+      if (!count || isNaN(count) || count < 1) {
+        showError('Digite uma quantidade válida de leads');
+        return;
+      }
+      
+      // Busca a aba ativa do Kommo
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      if (!tab) {
+        showError('Nenhuma aba ativa encontrada');
+        return;
+      }
+      
+      // Verifica se está na página correta
+      if (!tab.url || !tab.url.includes('/leads/pipeline/')) {
+        showError('Navegue para a página de Pipeline no Kommo');
+        return;
+      }
+      
+      addLog('🔍 Buscando leads...');
+      
+      // Busca os leads da página
+      const scriptResult = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (statusId, count) => {
+          // Verifica se estamos na página correta
+          if (!window.location.pathname.includes('/leads/pipeline/')) {
+            return { error: 'Navegue para a página de Pipeline no Kommo' };
+          }
+
+          // Extrai o código do funil da URL completa usando regex melhorado
+          const pipelineMatch = window.location.href.match(/\/leads\/pipeline\/(\d+)/);
+          const pipelineId = pipelineMatch ? pipelineMatch[1] : null;
+          
+          console.log('Debug URL:', {
+            url: window.location.href,
+            pathname: window.location.pathname,
+            pipelineMatch,
+            pipelineId
+          });
+          
+          if (!pipelineId) {
+            return { error: 'ID do funil não encontrado na URL' };
+          }
+          
+          // Clica no status para filtrar
+          const statusElement = document.querySelector(`#status_id_${statusId}`);
+          if (!statusElement) {
+            return { error: 'Status não encontrado' };
+          }
+          
+          statusElement.click();
+
+          // Aguarda carregar os leads e retorna
+          return new Promise((resolve) => {
+            setTimeout(() => {
+              const leads = Array.from(document.querySelectorAll('.pipeline_leads__item'))
+                .slice(0, count)
+                .map(lead => {
+                  const nameEl = lead.querySelector('.pipeline_leads__title-text');
+                  const phoneEl = lead.querySelector('.pipeline_leads__note');
+                  const phone = phoneEl ? phoneEl.textContent.trim().replace(/[^\d+]/g, '') : '';
+                  const detailsUrl = nameEl ? nameEl.getAttribute('href') : '';
+                  
+                  return {
+                    id: lead.getAttribute('data-id'),
+                    name: nameEl ? nameEl.textContent.trim() : '',
+                    phone: phone,
+                    detailsUrl: detailsUrl
+                  };
+                })
+                .filter(lead => lead.phone);
+
+              console.log('Debug Leads:', {
+                total: leads.length,
+                pipelineId,
+                firstLead: leads[0]
+              });
+
+              resolve({ leads, pipelineId });
+            }, 1000);
+          });
+        },
+        args: [statusId, count]
       });
       
-      if (!checkResult.found) {
-        throw new Error('3CX não encontrado. Abra o PWA primeiro.');
+      // Valida o resultado do script
+      if (!scriptResult || !Array.isArray(scriptResult) || scriptResult.length === 0) {
+        showError('Erro ao executar script de busca');
+        return;
+      }
+
+      const result = scriptResult[0].result;
+      
+      // Valida o resultado
+      if (!result) {
+        showError('Nenhum resultado retornado');
+        return;
       }
       
-      addLog('✅ 3CX encontrado, iniciando discador...');
-      
-      // Verifica se o Kommo está aberto
-      const kommoTab = await getKommoTab();
-      
-      // Busca os leads diretamente na página
-      const result = await getLeadsFromPage(kommoTab.id, status, count);
-      
+      // Verifica se há erro
       if (result.error) {
-        addLog('❌ ' + result.error, 'error');
+        showError(result.error);
         return;
       }
-
-      if (!result.leads || result.leads.length === 0) {
-        addLog('❌ Nenhum lead encontrado com telefone', 'error');
-        return;
-      }
-
-      addLog(`✅ ${result.leads.length} leads encontrados`);
       
-      // Inicia o discador no background
-      chrome.runtime.sendMessage({ 
+      // Valida leads e pipelineId
+      if (!result.leads || !Array.isArray(result.leads)) {
+        showError('Formato de leads inválido');
+        return;
+      }
+      
+      if (!result.pipelineId) {
+        showError('ID do funil não encontrado');
+        return;
+      }
+      
+      if (result.leads.length === 0) {
+        showError('Nenhum lead encontrado com telefone');
+        return;
+      }
+      
+      addLog(`✅ ${result.leads.length} leads encontrados no funil ${result.pipelineId}`);
+      console.log('Debug Final:', {
+        leads: result.leads,
+        pipelineId: result.pipelineId
+      });
+      
+      // Inicia o discador com os leads e o ID do funil
+      chrome.runtime.sendMessage({
         action: 'startDialer',
         leads: result.leads,
         pipelineId: result.pipelineId
       }, (response) => {
-        if (response.success) {
-          addLog('✅ Discador iniciado');
+        if (response && response.success) {
+          updateState();
+          addLog('✅ Discador iniciado com sucesso');
+        } else {
+          showError('Erro ao iniciar o discador');
         }
       });
-      
     } catch (error) {
-      addLog(`❌ ${error.message}`, 'error');
+      console.error('Erro completo:', error);
+      showError(error.message || 'Erro desconhecido ao iniciar discador');
     }
   });
 
