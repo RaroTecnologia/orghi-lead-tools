@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
       addLog(`✅ Ligação iniciada para ${lead.name}`);
       
       // Aguarda a ligação terminar verificando o status
-      let wasUnavailable = false;
+      let wasAvailable = true; // Começa como true pois o status inicial é available
       let checkCount = 0;
       const maxChecks = 10; // Máximo de 10 verificações (5 segundos)
       
@@ -183,22 +183,24 @@ document.addEventListener('DOMContentLoaded', () => {
             checkCount++;
             addLog(`🔄 Status do discador: ${result.classes}`);
             
-            // Se após 5 segundos não detectou ligação, considera finalizado
-            if (checkCount >= maxChecks && !wasUnavailable) {
-              addLog('⚠️ Tempo máximo atingido sem detectar ligação');
+            const isAvailable = result.classes.includes('available');
+            
+            // Se após 5 segundos não detectou mudança no status, considera finalizado
+            if (checkCount >= maxChecks && wasAvailable && isAvailable) {
+              addLog('⚠️ Tempo máximo atingido sem mudança no status');
               resolve();
               return;
             }
             
-            // Se entrou em ligação
-            if (result.classes.includes('busy') && !wasUnavailable) {
-              addLog('📱 Ligação em andamento');
-              wasUnavailable = true;
+            // Se estava available e agora não está, iniciou a ligação
+            if (wasAvailable && !isAvailable) {
+              addLog('📱 Ligação em andamento - status mudou de available para outro estado');
+              wasAvailable = false;
             }
             
-            // Se estava em ligação e saiu
-            if (wasUnavailable && !result.classes.includes('busy')) {
-              addLog('✅ Detectado fim da ligação');
+            // Se não estava available e agora está, terminou a ligação
+            if (!wasAvailable && isAvailable) {
+              addLog('✅ Detectado fim da ligação - status voltou para available');
               resolve();
               return;
             }
