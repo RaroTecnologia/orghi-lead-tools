@@ -146,8 +146,8 @@
   }
 
   // Função para ocultar linhas de WhatsApp não desejadas
-  function filterWhatsappLines(officialLine) {
-    debugLog(`Iniciando filterWhatsappLines com linha: ${officialLine}`);
+  function filterWhatsappLines(channels) {
+    debugLog(`Iniciando filterWhatsappLines com canais:`, channels);
 
     // Função que aplica o filtro em um elemento
     function applyFilter(element) {
@@ -163,11 +163,14 @@
           const itemText = item.textContent.trim();
           debugLog(`Item WhatsApp encontrado: ${itemText}`);
           
-          if (!itemText.includes(officialLine)) {
+          // Verifica se o item contém algum dos canais permitidos
+          const isAllowed = channels.some(channel => itemText.includes(channel));
+          
+          if (!isAllowed) {
             debugLog(`Ocultando: ${itemText}`);
             item.style.display = 'none';
           } else {
-            debugLog(`Mantendo visível: ${itemText}`);
+            debugLog(`Mantendo visível: ${itemText} (canal permitido)`);
             item.style.display = '';
           }
         }
@@ -269,12 +272,12 @@
 
   // Carrega a configuração inicial do WhatsApp
   debugLog('Carregando configuração do WhatsApp...');
-  chrome.storage.sync.get(['whatsappLine'], function(result) {
-    if (result.whatsappLine) {
-      debugLog(`Linha configurada: ${result.whatsappLine}`);
-      filterWhatsappLines(result.whatsappLine);
+  chrome.storage.sync.get(['whatsappChannels'], function(result) {
+    if (result.whatsappChannels && result.whatsappChannels.length > 0) {
+      debugLog(`Canais configurados:`, result.whatsappChannels);
+      filterWhatsappLines(result.whatsappChannels);
     } else {
-      debugLog('Nenhuma linha configurada ainda');
+      debugLog('Nenhum canal configurado ainda');
     }
   });
 
@@ -301,8 +304,8 @@
 
     // Atualiza linha do WhatsApp
     if (request.action === 'updateWhatsappLine') {
-      debugLog(`Atualizando linha para: ${request.line}`);
-      filterWhatsappLines(request.line);
+      debugLog(`Atualizando canais para:`, request.channels);
+      filterWhatsappLines(request.channels);
       sendResponse({ success: true });
       return;
     }

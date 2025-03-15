@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     // Elementos da UI
-    const whatsappLineInput = document.getElementById('whatsappLine');
+    const whatsappChannelsContainer = document.getElementById('whatsappChannels');
+    const addWhatsappChannelButton = document.getElementById('addWhatsappChannel');
     const dialerDelayInput = document.getElementById('dialerDelay');
     const threeCXDomainInput = document.getElementById('threeCXDomain');
     const saveAllButton = document.getElementById('saveAll');
@@ -8,6 +9,32 @@ document.addEventListener('DOMContentLoaded', function() {
     const statusMessageElement = document.getElementById('statusMessage');
     const threeCXStatusElement = document.getElementById('threeCXStatus');
     const debugInfoElement = document.getElementById('debugInfo');
+
+    // Função para criar um novo campo de canal
+    function createChannelField(value = '') {
+        const channelGroup = document.createElement('div');
+        channelGroup.className = 'form-group whatsapp-channel';
+        channelGroup.style.display = 'flex';
+        channelGroup.style.gap = '10px';
+        channelGroup.style.alignItems = 'center';
+
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'whatsapp-channel-input';
+        input.placeholder = 'Ex: Raro';
+        input.value = value;
+        input.style.flex = '1';
+
+        const removeButton = document.createElement('button');
+        removeButton.textContent = '✕';
+        removeButton.className = 'secondary';
+        removeButton.style.padding = '8px 12px';
+        removeButton.onclick = () => channelGroup.remove();
+
+        channelGroup.appendChild(input);
+        channelGroup.appendChild(removeButton);
+        return channelGroup;
+    }
 
     // Função para mostrar mensagem de status
     function showStatusMessage(message, isError = false) {
@@ -32,13 +59,23 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Carregar configurações salvas
-    chrome.storage.sync.get(['whatsappLine', 'dialerDelay', 'threeCXDomain'], (result) => {
-        whatsappLineInput.value = result.whatsappLine || '';
+    chrome.storage.sync.get(['whatsappChannels', 'dialerDelay', 'threeCXDomain'], (result) => {
+        // Carrega canais do WhatsApp
+        const channels = result.whatsappChannels || [''];
+        channels.forEach(channel => {
+            whatsappChannelsContainer.appendChild(createChannelField(channel));
+        });
+
         dialerDelayInput.value = result.dialerDelay || '5';
         threeCXDomainInput.value = result.threeCXDomain || '';
         
         // Verificar status do 3CX ao carregar
         checkThreeCXStatus();
+    });
+
+    // Event listener para adicionar novo canal
+    addWhatsappChannelButton.addEventListener('click', () => {
+        whatsappChannelsContainer.appendChild(createChannelField());
     });
 
     // Função para verificar status do 3CX
@@ -64,9 +101,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Event listener para salvar configurações
     saveAllButton.addEventListener('click', () => {
-        // Validar campos
-        if (!whatsappLineInput.value) {
-            showStatusMessage('Por favor, preencha o nome da linha do WhatsApp', true);
+        // Coleta todos os canais de WhatsApp
+        const channels = Array.from(document.querySelectorAll('.whatsapp-channel-input'))
+            .map(input => input.value.trim())
+            .filter(value => value); // Remove valores vazios
+
+        if (channels.length === 0) {
+            showStatusMessage('Por favor, adicione pelo menos um canal do WhatsApp', true);
             return;
         }
 
@@ -82,7 +123,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Salvar configurações
         chrome.storage.sync.set({
-            whatsappLine: whatsappLineInput.value,
+            whatsappChannels: channels,
             dialerDelay: dialerDelayInput.value,
             threeCXDomain: threeCXDomainInput.value
         }, () => {
