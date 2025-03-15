@@ -4,6 +4,77 @@ document.addEventListener('DOMContentLoaded', () => {
   const startDialerButton = document.getElementById('start-dialer');
   const logsContainer = document.getElementById('logs');
   let waitTimer = null;
+  let currentLeads = null;
+  let currentLeadIndex = 0;
+
+  // Função para salvar estado
+  function saveState() {
+    const state = {
+      selectedStatus: leadStatus.value,
+      count: leadCount.value,
+      logs: Array.from(logsContainer.children).map(log => ({
+        message: log.querySelector('.message').textContent,
+        type: log.className.replace('log-entry ', ''),
+        time: log.querySelector('.time').textContent
+      }))
+    };
+    console.log('Salvando estado:', state);
+    chrome.storage.local.set({ popupState: state }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Erro ao salvar estado:', chrome.runtime.lastError);
+      } else {
+        console.log('Estado salvo com sucesso');
+      }
+    });
+  }
+
+  // Função para carregar estado
+  async function loadState() {
+    console.log('Carregando estado...');
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['popupState'], (result) => {
+        console.log('Estado carregado:', result.popupState);
+        
+        if (result.popupState) {
+          // Restaura status selecionado
+          if (result.popupState.selectedStatus) {
+            leadStatus.value = result.popupState.selectedStatus;
+            console.log('Status restaurado:', result.popupState.selectedStatus);
+          }
+
+          // Restaura quantidade
+          if (result.popupState.count) {
+            leadCount.value = result.popupState.count;
+            console.log('Quantidade restaurada:', result.popupState.count);
+          }
+
+          // Restaura logs
+          if (result.popupState.logs && result.popupState.logs.length > 0) {
+            logsContainer.innerHTML = ''; // Limpa logs antes de restaurar
+            result.popupState.logs.forEach(log => {
+              const logEntry = document.createElement('div');
+              logEntry.className = `log-entry ${log.type}`;
+              logEntry.innerHTML = `
+                <span class="time">${log.time}</span>
+                <span class="message">${log.message}</span>
+              `;
+              logsContainer.appendChild(logEntry);
+            });
+            console.log('Logs restaurados:', result.popupState.logs.length);
+          } else {
+            console.log('Nenhum log para restaurar');
+            logsContainer.innerHTML = '';
+            addLog('💡 Discador pronto');
+          }
+        } else {
+          console.log('Nenhum estado anterior encontrado');
+          logsContainer.innerHTML = '';
+          addLog('💡 Discador pronto');
+        }
+        resolve();
+      });
+    });
+  }
 
   // Função para formatar tempo
   function formatTime(seconds) {
@@ -25,6 +96,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     logsContainer.appendChild(logEntry);
     logsContainer.scrollTop = logsContainer.scrollHeight;
+    
+    // Salva estado após adicionar log
+    saveState();
   }
 
   // Função para iniciar temporizador
@@ -50,20 +124,27 @@ document.addEventListener('DOMContentLoaded', () => {
         clearInterval(waitTimer);
         waitTimer = null;
         addLog('✅ Tempo de espera concluído');
-        processNextLead();
+        if (currentLeads && currentLeadIndex < currentLeads.length) {
+          processNextLead(currentLeads, currentLeadIndex);
+        }
       }
     }, 1000);
   }
 
   // Função para processar próximo lead
-  async function processNextLead(leads, currentIndex = 0) {
-    if (!leads || currentIndex >= leads.length) {
+  async function processNextLead(leads, index = 0) {
+    if (!leads || index >= leads.length) {
       addLog('✅ Todas as ligações foram realizadas');
+      currentLeads = null;
+      currentLeadIndex = 0;
       return;
     }
 
-    const lead = leads[currentIndex];
-    addLog(`📞 Ligando para ${lead.name} (${lead.phone})`);
+    currentLeads = leads;
+    currentLeadIndex = index;
+
+    const lead = leads[index];
+    addLog(`📞 Ligando para ${lead.name} (${lead.phone}) - ${index + 1}/${leads.length}`);
     
     try {
       // Formata o número removendo caracteres especiais e espaços
@@ -104,18 +185,17 @@ document.addEventListener('DOMContentLoaded', () => {
       // Busca o tempo configurado no storage
       chrome.storage.sync.get(['waitTime'], (result) => {
         const waitSeconds = (result.waitTime || 30) * 1; // Converte para segundos
+        currentLeadIndex = index + 1;
         startTimer(waitSeconds);
-        
-        // Agenda o próximo lead
-        setTimeout(() => {
-          processNextLead(leads, currentIndex + 1);
-        }, waitSeconds * 1000);
       });
       
     } catch (error) {
       addLog(`❌ Erro ao ligar para ${lead.name}: ${error.message}`);
-      // Em caso de erro, continua para o próximo lead
-      processNextLead(leads, currentIndex + 1);
+      // Em caso de erro, continua para o próximo lead após 5 segundos
+      setTimeout(() => {
+        currentLeadIndex = index + 1;
+        processNextLead(leads, currentLeadIndex);
+      }, 5000);
     }
   }
 
@@ -243,17 +323,35 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
 
+      if (!result.leads || result.leads.length === 0) {
+        addLog('❌ Nenhum lead encontrado com telefone');
+        return;
+      }
+
       addLog(`✅ ${result.leads.length} leads encontrados`);
       
+      // Reseta o estado atual
+      currentLeads = null;
+      currentLeadIndex = 0;
+      
       // Inicia o processamento dos leads
-      processNextLead(result.leads);
+      processNextLead(result.leads, 0);
       
     } catch (error) {
       addLog(`❌ ${error.message}`, 'error');
     }
   });
 
+  // Event listeners para salvar estado
+  leadStatus.addEventListener('change', saveState);
+  leadCount.addEventListener('input', saveState);
+
   // Limpa os logs ao abrir
   logsContainer.innerHTML = '';
   addLog('💡 Discador pronto');
+
+  // Carrega estado ao iniciar
+  loadState().then(() => {
+    console.log('Inicialização completa');
+  });
 }); 

@@ -110,53 +110,95 @@ async function makeCall(phone) {
       target: { tabId: result.tabId },
       func: (phoneNumber) => {
         return new Promise((resolve) => {
-          // Aguarda elementos carregarem
-          const waitForElement = (selector, timeout = 5000) => {
+          // Função para monitorar status da ligação
+          const monitorCallStatus = () => {
+            return new Promise((resolve) => {
+              let wasInCall = false;
+              
+              const checkStatus = () => {
+                const statusIndicator = document.querySelector('i[data-qa="status-indicator"]');
+                if (!statusIndicator) return setTimeout(checkStatus, 500);
+                
+                // Verifica pelos estados usando as classes
+                const isAvailable = statusIndicator.classList.contains('available');
+                const isInCall = !isAvailable && !statusIndicator.classList.contains('unavailable');
+                
+                console.log('Status atual:', {
+                  classes: statusIndicator.className,
+                  isAvailable,
+                  isInCall,
+                  wasInCall
+                });
+                
+                if (isInCall) {
+                  console.log('Em chamada...');
+                  wasInCall = true;
+                } else if (wasInCall && isAvailable) {
+                  console.log('Chamada finalizada - status voltou para disponível');
+                  resolve();
+                  return;
+                }
+                
+                setTimeout(checkStatus, 500);
+              };
+              
+              checkStatus();
+            });
+          };
+
+          // Função otimizada para aguardar elementos
+          const waitForElement = (selector, timeout = 3000) => {
             return new Promise((resolve, reject) => {
               const startTime = Date.now();
               
               const checkElement = () => {
                 let element = null;
                 
-                // Tenta diferentes estratégias
+                // Tenta diferentes estratégias em ordem de prioridade
                 if (selector === '#menuDialer') {
-                  // Primeiro tenta pelo ID
-                  element = document.querySelector('#menuDialer');
-                  if (!element) {
-                    // Tenta pelo atributo role e title
-                    element = document.querySelector('a[role="button"][title="Discador"]');
-                  }
-                  if (!element) {
-                    // Tenta pelo ícone dentro do botão
-                    const icon = document.querySelector('.customSVGIcons.svg-sm');
-                    if (icon) {
-                      element = icon.closest('a[role="button"]');
+                  const selectors = [
+                    '#menuDialer',
+                    'a[role="button"][title="Discador"]',
+                    'a[role="button"] .customSVGIcons.svg-sm',
+                    'a.header-button[title="Discador"]'
+                  ];
+                  
+                  for (const sel of selectors) {
+                    element = document.querySelector(sel);
+                    if (element) {
+                      if (sel.includes('.customSVGIcons')) {
+                        element = element.closest('a[role="button"]');
+                      }
+                      break;
                     }
                   }
                 } else if (selector === '#btnCall') {
-                  // Primeiro tenta pelo ID
-                  element = document.querySelector('#btnCall');
-                  if (!element) {
-                    // Tenta pelo ícone do telefone
-                    element = document.querySelector('button.btnNum span[app-phone-alt-solid-icon]').closest('button');
+                  const selectors = [
+                    '#btnCall',
+                    'button.btnNum span[app-phone-alt-solid-icon]',
+                    'button.btnNum'
+                  ];
+                  
+                  for (const sel of selectors) {
+                    element = document.querySelector(sel);
+                    if (element) {
+                      if (sel.includes('span')) {
+                        element = element.closest('button');
+                      }
+                      break;
+                    }
                   }
                 } else {
                   element = document.querySelector(selector);
                 }
                 
-                if (element) {
-                  console.log('Elemento encontrado:', {
-                    selector,
-                    element: element.outerHTML,
-                    isVisible: element.offsetParent !== null
-                  });
+                if (element && element.offsetParent !== null) {
+                  console.log('Elemento encontrado e visível:', selector);
                   resolve(element);
                 } else if (Date.now() - startTime > timeout) {
-                  const html = document.body.innerHTML;
-                  console.log('HTML disponível (primeiros 500 caracteres):', html.substring(0, 500));
                   reject(new Error(`Elemento ${selector} não encontrado após ${timeout}ms`));
                 } else {
-                  setTimeout(checkElement, 100);
+                  setTimeout(checkElement, 50); // Reduzido para 50ms
                 }
               };
               
@@ -164,116 +206,54 @@ async function makeCall(phone) {
             });
           };
 
-          // Função para verificar status
-          const checkStatus = async () => {
-            const statusIndicator = document.querySelector('i[data-qa="status-indicator"]');
-            if (!statusIndicator) {
-              throw new Error('Indicador de status não encontrado');
+          // Função otimizada para clicar
+          const clickElement = async (element) => {
+            try {
+              element.click();
+            } catch (e) {
+              element.dispatchEvent(new MouseEvent('click', {
+                bubbles: true,
+                cancelable: true,
+                view: window
+              }));
             }
-
-            const style = getComputedStyle(statusIndicator);
-            const backgroundColor = style.backgroundColor;
-            console.log('Status atual:', backgroundColor);
-
-            // Verifica se a classe 'available' está presente
-            const isAvailableClass = statusIndicator.classList.contains('available');
-            console.log('Tem classe available:', isAvailableClass);
-
-            const isAvailable = isAvailableClass || 
-                              backgroundColor.includes('var(--status-available)') || 
-                              backgroundColor.includes('rgb(0, 255, 0)') ||
-                              backgroundColor.includes('#00ff00');
-
-            return isAvailable;
+            // Reduzido para 500ms
+            await new Promise(resolve => setTimeout(resolve, 500));
           };
 
-          // Função para aguardar ficar disponível
-          const waitForAvailable = async (maxWaitTime = 300000) => {
-            const startTime = Date.now();
-            
-            while (Date.now() - startTime < maxWaitTime) {
-              if (await checkStatus()) {
-                return true;
-              }
-              await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-            
-            throw new Error('Timeout aguardando ficar disponível');
-          };
-
-          // Função para clicar em um elemento com retry
-          const clickElement = async (element, maxRetries = 3) => {
-            for (let i = 0; i < maxRetries; i++) {
-              try {
-                console.log('Tentando clicar no elemento:', {
-                  tagName: element.tagName,
-                  id: element.id,
-                  classes: element.className,
-                  isVisible: element.offsetParent !== null
-                });
-
-                // Tenta diferentes métodos de clique
-                try {
-                  element.click();
-                } catch (e) {
-                  console.log('Clique direto falhou, tentando evento');
-                  element.dispatchEvent(new MouseEvent('click', {
-                    bubbles: true,
-                    cancelable: true,
-                    view: window
-                  }));
-                }
-
-                await new Promise(resolve => setTimeout(resolve, 2000));
-                return;
-              } catch (error) {
-                console.log(`Tentativa ${i + 1} falhou:`, error);
-                await new Promise(resolve => setTimeout(resolve, 1000));
-              }
-            }
-            throw new Error('Falha ao clicar no elemento após várias tentativas');
-          };
-
-          // Fluxo principal
+          // Fluxo principal otimizado
           (async () => {
             try {
               console.log('Iniciando fluxo de ligação...');
               
-              // Primeiro verifica se está disponível
-              console.log('Verificando status...');
-              await waitForAvailable();
-              console.log('Status disponível, iniciando ligação...');
-
-              // Tenta encontrar o botão do discador
+              // Encontra e clica no botão do discador
               console.log('Procurando botão do discador...');
               const dialerButton = await waitForElement('#menuDialer');
-              console.log('Botão do discador encontrado:', dialerButton);
               await clickElement(dialerButton);
 
-              // Aguarda o input do discador aparecer
+              // Aguarda e preenche o input
               console.log('Aguardando input do discador...');
               const phoneInput = await waitForElement('#dialpad-input');
-              console.log('Input encontrado, preenchendo número:', phoneNumber);
               
-              // Limpa o input antes
+              // Limpa e preenche o número rapidamente
               phoneInput.value = '';
-              phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
-              await new Promise(resolve => setTimeout(resolve, 500));
-              
-              // Preenche o número
               phoneInput.value = phoneNumber;
               phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
               phoneInput.dispatchEvent(new Event('change', { bubbles: true }));
-              await new Promise(resolve => setTimeout(resolve, 2000));
+              
+              // Reduzido para 300ms
+              await new Promise(resolve => setTimeout(resolve, 300));
 
-              // Aguarda o botão de chamada
+              // Clica para ligar
               console.log('Procurando botão de chamada...');
               const callButton = await waitForElement('#btnCall');
-              console.log('Botão de chamada encontrado, clicando...');
               await clickElement(callButton);
 
-              console.log('Chamada iniciada com sucesso');
-              resolve({ success: true });
+              console.log('Aguardando fim da chamada...');
+              await monitorCallStatus();
+
+              console.log('Chamada finalizada com sucesso');
+              resolve({ success: true, completed: true });
             } catch (error) {
               console.error('Erro durante a ligação:', error);
               resolve({ error: error.message });
