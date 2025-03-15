@@ -146,11 +146,11 @@ async function makeCall(phone) {
                 
                 // Verifica pelos estados usando as classes
                 const classes = statusIndicator.className;
-                const isAvailable = classes.includes('available');
+                const isBusy = classes.includes('busy');
                 
                 console.log('Status atual:', {
                   classes,
-                  isAvailable,
+                  isBusy,
                   wasInCall,
                   checkCount
                 });
@@ -162,15 +162,15 @@ async function makeCall(phone) {
                   return;
                 }
                 
-                // Se estava disponível e agora não está, entrou em ligação
-                if (!isAvailable && !wasInCall) {
-                  console.log('Iniciou chamada - status indisponível');
+                // Se entrou em ligação
+                if (isBusy && !wasInCall) {
+                  console.log('Iniciou chamada - status busy');
                   wasInCall = true;
                 }
                 
-                // Se estava em ligação e voltou a ficar disponível
-                if (wasInCall && isAvailable) {
-                  console.log('Chamada finalizada - status voltou para disponível');
+                // Se estava em ligação e saiu
+                if (wasInCall && !isBusy) {
+                  console.log('Chamada finalizada - status não está mais busy');
                   resolve();
                   return;
                 }
