@@ -363,13 +363,122 @@ function formatTime(seconds) {
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
+// Função para buscar leads diretamente na página
+async function getLeadsFromPage(tabId, statusId, count) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (statusId, count) => {
+      // Verifica se estamos na página correta
+      if (!window.location.pathname.includes('/leads/pipeline/')) {
+        return { error: 'Navegue para a página de Pipeline no Kommo' };
+      }
+
+      // Extrai o código do funil da URL completa
+      const pipelineId = window.location.pathname.match(/\/leads\/pipeline\/(\d+)/)?.[1];
+      if (!pipelineId) {
+        return { error: 'ID do funil não encontrado na URL' };
+      }
+      
+      // Clica no status para filtrar
+      const statusElement = document.querySelector(`#status_id_${statusId}`);
+      if (!statusElement) {
+        return { error: 'Status não encontrado' };
+      }
+
+      // Aguarda carregar os leads e retorna
+      return new Promise((resolve) => {
+        setTimeout(() => {
+          const leads = Array.from(document.querySelectorAll('.pipeline_leads__item'))
+            .slice(0, count)
+            .map(lead => {
+              const nameEl = lead.querySelector('.pipeline_leads__title-text');
+              const phoneEl = lead.querySelector('.pipeline_leads__note');
+              const phone = phoneEl ? phoneEl.textContent.trim().replace(/[^\d+]/g, '') : '';
+              const detailsUrl = nameEl ? nameEl.getAttribute('href') : '';
+              
+              return {
+                id: lead.getAttribute('data-id'),
+                name: nameEl ? nameEl.textContent.trim() : '',
+                phone: phone,
+                detailsUrl: detailsUrl
+              };
+            })
+            .filter(lead => lead.phone);
+
+          resolve({ leads, pipelineId });
+        }, 1000);
+      });
+    },
+    args: [statusId, count]
+  });
+
+  return results[0].result;
+}
+
+// Função para retornar ao funil
+async function returnToPipeline(pipelineId) {
+  try {
+    const domain = (await chrome.storage.sync.get(['kommoDomain'])).kommoDomain || 'app';
+    const tabs = await chrome.tabs.query({url: "*://*.kommo.com/*"});
+    
+    if (tabs.length > 0) {
+      const pipelineUrl = `https://${domain}.kommo.com/leads/pipeline/${pipelineId}`;
+      console.log('🔄 Retornando ao funil:', {
+        pipelineId,
+        url: pipelineUrl,
+        tabId: tabs[0].id
+      });
+      
+      return new Promise((resolve) => {
+        function onTabUpdate(tabId, changeInfo, tab) {
+          // Verifica se a URL contém exatamente o ID do funil
+          if (tabId === tabs[0].id && changeInfo.status === 'complete' && tab.url.includes(`/pipeline/${pipelineId}`)) {
+            chrome.tabs.onUpdated.removeListener(onTabUpdate);
+            resolve();
+          }
+        }
+        
+        chrome.tabs.onUpdated.addListener(onTabUpdate);
+        
+        chrome.tabs.update(tabs[0].id, { 
+          url: pipelineUrl,
+          active: true
+        });
+        
+        // Timeout de segurança após 10 segundos
+        setTimeout(() => {
+          chrome.tabs.onUpdated.removeListener(onTabUpdate);
+          resolve();
+        }, 10000);
+      });
+    }
+  } catch (error) {
+    console.error('❌ Erro ao retornar ao funil:', error);
+  }
+}
+
 // Função para processar próximo lead
 async function processNextLead() {
   if (!state.currentLeads || state.currentLeadIndex >= state.currentLeads.length) {
     console.log('✅ Todos os leads foram processados');
+    
+    // Aguarda 2 segundos antes de retornar ao funil
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Retorna ao funil original antes de finalizar
+    if (state.pipelineId) {
+      console.log('🔄 Retornando ao funil:', state.pipelineId);
+      await returnToPipeline(state.pipelineId);
+      // Aguarda mais 2 segundos após retornar ao funil
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } else {
+      console.log('⚠️ ID do funil não encontrado, não será possível retornar');
+    }
+    
     state.isRunning = false;
     state.currentLeads = null;
     state.currentLeadIndex = 0;
+    state.pipelineId = null;
     await saveState();
     return;
   }
@@ -449,64 +558,26 @@ async function processNextLead() {
             console.log('⏰ Timer finalizado');
             clearInterval(state.waitTimer);
             state.waitTimer = null;
-            state.countdown = 0;
-            broadcastState();
             resolve();
           }
         }, 1000);
       });
 
-      if (!state.isPaused) {
-        processNextLead();
-      }
+      // Processa o próximo lead
+      processNextLead();
     } else {
-      // Se é o último lead, incrementa o índice e aguarda 2 segundos antes de finalizar
+      // Se era o último lead, incrementa o índice e chama processNextLead para finalizar
       state.currentLeadIndex++;
       await saveState();
-      
-      // Retorna para a página de pipeline
-      const tabs = await chrome.tabs.query({url: "*://*.kommo.com/*"});
-      if (tabs.length > 0) {
-        const domain = (await chrome.storage.sync.get(['kommoDomain'])).kommoDomain || 'app';
-        console.log('🔄 Retornando para a página de pipeline...');
-        await chrome.tabs.update(tabs[0].id, { 
-          url: `https://${domain}.kommo.com/leads/pipeline/${state.pipelineId || 1}`,
-          active: false
-        });
-      }
-      
-      // Aguarda 2 segundos antes de finalizar o discador
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Finaliza o discador quando todos os leads foram processados
-      console.log('✅ Todas as ligações foram concluídas');
-      state.isRunning = false;
-      state.currentLeads = null;
-      state.currentLeadIndex = 0;
-      await saveState();
+      processNextLead();
     }
   } catch (error) {
     console.error('❌ Erro ao processar lead:', error);
     
-    // Em caso de erro, tenta o próximo lead após 5 segundos
+    // Se houver erro, aguarda 5 segundos antes de tentar o próximo
     if (!state.isPaused) {
-      console.log('⏳ Tentando próximo lead em 5 segundos...');
       await new Promise(resolve => setTimeout(resolve, 5000));
-      
-      if (!state.isPaused) {
-        if (state.currentLeadIndex < state.currentLeads.length - 1) {
-          state.currentLeadIndex++;
-          await saveState();
-          processNextLead();
-        } else {
-          // Se era o último lead, finaliza após o erro
-          console.log('✅ Finalizando discador após erro no último lead');
-          state.isRunning = false;
-          state.currentLeads = null;
-          state.currentLeadIndex = 0;
-          await saveState();
-        }
-      }
+      processNextLead();
     }
   }
 }
