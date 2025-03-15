@@ -171,14 +171,20 @@ document.addEventListener('DOMContentLoaded', () => {
             action: 'checkStatus',
             tabId: response.tabId
           }, (result) => {
+            addLog(`🔄 Status do discador: ${result.available ? 'Disponível' : 'Em chamada'}`);
+            
             // Se estava indisponível e agora está disponível, ligação terminou
             if (wasUnavailable && result.available) {
+              addLog('✅ Detectado fim da ligação');
               resolve();
               return;
             }
             
             // Se está indisponível, marca que entrou em ligação
             if (!result.available) {
+              if (!wasUnavailable) {
+                addLog('📱 Ligação em andamento');
+              }
               wasUnavailable = true;
             }
             
