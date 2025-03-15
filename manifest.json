@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Orghi Lead Tools",
+  "name": "Orghi Kommo",
   "version": "1.0",
-  "description": "Ferramentas para automação de leads no Kommo",
+  "description": "Discador automático para o Kommo",
   "permissions": [
     "storage",
     "tabs",
@@ -10,10 +10,8 @@
     "activeTab"
   ],
   "host_permissions": [
-    "*://*.3cx.cloud/*",
-    "*://*.3cx.com/*",
     "*://*.kommo.com/*",
-    "https://*/*"
+    "*://*.3cx.cloud/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -28,15 +26,15 @@
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
     }
   },
   "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
   },
   "options_page": "options.html"
 } 

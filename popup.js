@@ -13,12 +13,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const statusTimer = document.getElementById('status-timer');
   const emptyState = document.getElementById('empty-state');
   const statusCounter = document.getElementById('status-counter');
+  const callTimer = document.getElementById('call-timer');
+  const endCallButton = document.getElementById('end-call');
+  const forceResetButton = document.getElementById('force-reset');
   
-  // Elementos de nota
-  const noteTypeSelect = document.getElementById('note-type');
-  const customNoteContainer = document.getElementById('custom-note-container');
-  const customNoteInput = document.getElementById('custom-note');
-  const notePreview = document.getElementById('note-preview');
+  // Elementos da seção de notas
+  const noteSection = document.getElementById('noteSection');
+  const noteTypeSelect = document.getElementById('noteTypeSelect');
+  const customNoteContainer = document.getElementById('customNoteContainer');
+  const customNoteInput = document.getElementById('customNoteInput');
+  const saveNoteButton = document.getElementById('saveNoteButton');
   
   let debugMode = false;
   let state = {
@@ -28,19 +32,55 @@ document.addEventListener('DOMContentLoaded', () => {
     isRunning: false
   };
 
+  let callTimerInterval = null;
+  let callDuration = 0;
+
   // Templates de notas
   const noteTemplates = {
-    auto: (date) => `Chamada realizada em ${date}`,
-    'not-interested': (date) => `Chamada realizada em ${date}. Cliente não demonstrou interesse.`,
-    callback: (date) => `Chamada realizada em ${date}. Cliente solicitou retorno em outro momento.`,
-    'wrong-number': (date) => `Chamada realizada em ${date}. Número incorreto.`,
-    'no-answer': (date) => `Chamada realizada em ${date}. Cliente não atendeu.`,
-    custom: (date, text) => `Chamada realizada em ${date}. ${text}`
+    'not-answered': () => 'Ligação não atendida.',
+    'not-interested': () => 'Cliente não demonstrou interesse no momento.',
+    'callback': () => 'Cliente solicitou retorno em outro momento.',
+    'wrong-number': () => 'Número incorreto.',
+    'not-person': () => 'Não é a pessoa.',
+    'changed-phone': () => 'Cliente trocou de telefone.',
+    'summary': () => customNoteInput.value.trim()
   };
 
   // Função para mostrar erros
   function showError(message) {
     addLog(`❌ ${message}`, 'error');
+  }
+
+  // Função para formatar o tempo
+  function formatTime(seconds) {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+  }
+
+  // Função para iniciar o contador
+  function startCallTimer() {
+    callDuration = 0;
+    callTimer.textContent = formatTime(callDuration);
+    
+    if (callTimerInterval) {
+      clearInterval(callTimerInterval);
+    }
+    
+    callTimerInterval = setInterval(() => {
+      callDuration++;
+      callTimer.textContent = formatTime(callDuration);
+    }, 1000);
+  }
+
+  // Função para parar o contador
+  function stopCallTimer() {
+    if (callTimerInterval) {
+      clearInterval(callTimerInterval);
+      callTimerInterval = null;
+    }
+    callDuration = 0;
+    callTimer.textContent = '00:00';
   }
 
   // Função para atualizar o progresso visual
@@ -57,12 +97,13 @@ document.addEventListener('DOMContentLoaded', () => {
       leadsList.innerHTML = '';
       startDialerButton.disabled = false;
       pauseDialerButton.classList.add('hidden');
+      hideNoteSection(); // Esconde a seção de notas
       addLog('✅ Discador finalizado', 'success');
+      stopCallTimer();
       return;
     }
     
     const total = state.currentLeads.length;
-    // Garante que o índice atual nunca ultrapasse o total
     const current = Math.min(state.currentLeadIndex + 1, total);
     const progress = (current / total) * 100;
     
@@ -98,6 +139,16 @@ document.addEventListener('DOMContentLoaded', () => {
       startDialerButton.disabled = true;
       pauseDialerButton.classList.toggle('hidden', current >= total);
       pauseDialerButton.disabled = false;
+
+      // Inicia o timer quando uma nova ligação começa
+      if (!state.isPaused && current <= total) {
+        startCallTimer();
+      } else {
+        stopCallTimer();
+      }
+
+      // Habilita/desabilita o botão de encerrar ligação
+      endCallButton.disabled = state.isPaused || current > total || noteSection.style.display === 'block';
     } else {
       // Se não estiver rodando, mostra estado inicial
       emptyState.style.display = 'flex';
@@ -106,6 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
       progressBar.style.width = '0%';
       startDialerButton.disabled = false;
       pauseDialerButton.classList.add('hidden');
+      hideNoteSection(); // Esconde a seção de notas
     }
 
     // Se chegou ao último lead e finalizou a última chamada
@@ -198,408 +250,407 @@ document.addEventListener('DOMContentLoaded', () => {
         const pipelineMatch = window.location.href.match(/\/leads\/pipeline\/(\d+)/);
         const pipelineId = pipelineMatch ? pipelineMatch[1] : null;
         
-        console.log('Debug URL:', {
-          url: window.location.href,
-          pathname: window.location.pathname,
-          pipelineMatch,
-          pipelineId
-        });
-        
         if (!pipelineId) {
-          return { error: 'ID do funil não encontrado na URL' };
+          return { error: 'ID do funil não encontrado' };
         }
+
+        // Busca os leads na página
+        const leads = [];
         
-        // Clica no status para filtrar
-        const statusElement = document.querySelector(`#status_id_${statusId}`);
-        if (!statusElement) {
-          return { error: 'Status não encontrado' };
+        // Encontra a lista de leads do status específico
+        const statusList = document.querySelector(`.pipeline_items__list[data-id="${statusId}"]`);
+        if (!statusList) {
+          return { error: 'Lista de leads não encontrada para este status' };
         }
+
+        // Busca todos os leads dentro desta lista
+        const cards = statusList.querySelectorAll('.pipeline_leads__item');
         
-        statusElement.click();
-
-        // Aguarda carregar os leads e retorna
-        return new Promise((resolve) => {
-          setTimeout(() => {
-            const leads = Array.from(document.querySelectorAll('.pipeline_leads__item'))
-              .slice(0, count)
-              .map(lead => {
-                const nameEl = lead.querySelector('.pipeline_leads__title-text');
-                const phoneEl = lead.querySelector('.pipeline_leads__note');
-                const phone = phoneEl ? phoneEl.textContent.trim().replace(/[^\d+]/g, '') : '';
-                const detailsUrl = nameEl ? nameEl.getAttribute('href') : '';
-                
-                return {
-                  id: lead.getAttribute('data-id'),
-                  name: nameEl ? nameEl.textContent.trim() : '',
-                  phone: phone,
-                  detailsUrl: detailsUrl
-                };
-              })
-              .filter(lead => lead.phone);
-
-            console.log('Debug Leads:', {
-              total: leads.length,
-              pipelineId,
-              firstLead: leads[0]
+        cards.forEach(card => {
+          // Extrai informações do lead
+          const name = card.querySelector('.pipeline_leads__title-text')?.textContent?.trim() || 'Sem nome';
+          const phone = card.querySelector('.pipeline_leads__note')?.textContent?.trim();
+          const detailsUrl = card.querySelector('.pipeline_leads__title-text')?.getAttribute('href');
+          
+          if (phone) {
+            leads.push({
+              id: card.dataset.id,
+              name,
+              phone,
+              detailsUrl
             });
-
-            resolve({ leads, pipelineId });
-          }, 1000);
+          }
         });
+
+        return {
+          leads: leads.slice(0, count),
+          pipelineId
+        };
       },
       args: [statusId, count]
     });
 
+    if (!results || !results[0] || results[0].result.error) {
+      throw new Error(results?.[0]?.result?.error || 'Erro ao buscar leads');
+    }
+
     return results[0].result;
   }
 
-  // Função para atualizar os status dos leads
-  async function updateLeadStatuses() {
+  // Função para carregar os status do funil
+  async function loadPipelineStatuses() {
     try {
-      const kommoTab = await getKommoTab();
+      const tab = await getKommoTab();
+      addLog('🔍 Buscando status do pipeline...', 'info');
       
       const results = await chrome.scripting.executeScript({
-        target: { tabId: kommoTab.id },
+        target: { tabId: tab.id },
         func: () => {
           // Verifica se estamos na página correta
           if (!window.location.pathname.includes('/leads/pipeline/')) {
             return { error: 'Navegue para a página de Pipeline no Kommo' };
           }
 
-          // Extrai o código do funil da URL
-          const pipelineId = window.location.pathname.split('/').pop();
-          
           // Busca os status disponíveis
-          const statuses = Array.from(document.querySelectorAll('.pipeline-status'))
+          const statuses = Array.from(document.querySelectorAll('.pipeline_status__head'))
             .map(status => ({
               id: status.getAttribute('data-id'),
-              name: status.querySelector('.pipeline-status__head-title').textContent.trim()
+              name: status.querySelector('.pipeline_status__head_title').textContent.trim()
             }))
             .filter(status => status.id);
 
-          return { statuses, pipelineId };
+          return { statuses };
         }
       });
 
-      const result = results[0].result;
-      
-      if (result.error) {
-        addLog('❌ ' + result.error, 'error');
-        return;
+      if (!results || !results[0] || !results[0].result.statuses) {
+        throw new Error('Erro ao carregar status do funil');
       }
 
-      if (result.statuses && result.statuses.length > 0) {
-        leadStatus.innerHTML = result.statuses
-          .map(status => `<option value="${status.id}">${status.name}</option>`)
-          .join('');
-        addLog('✅ Status dos leads atualizados');
-        
-        // Salva os status no storage
-        chrome.storage.sync.set({ leadStatuses: result.statuses });
-      }
+      const statuses = results[0].result.statuses;
+      addLog(`✅ Encontrados ${statuses.length} status`, 'info');
+      
+      // Limpa e preenche o select
+      leadStatus.innerHTML = '';
+      
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'Selecione um status';
+      leadStatus.appendChild(defaultOption);
+      
+      statuses.forEach(status => {
+        const option = document.createElement('option');
+        option.value = status.id;
+        option.textContent = status.name;
+        leadStatus.appendChild(option);
+      });
+
+      // Salva os status no storage para uso futuro
+      chrome.storage.sync.set({ leadStatuses: statuses });
+
     } catch (error) {
-      addLog(`❌ ${error.message}`, 'error');
+      addLog(`❌ Erro ao carregar status: ${error.message}`, 'error');
+      showError(error.message);
     }
   }
 
-  // Monitora mudanças na URL do Kommo
-  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-    if (changeInfo.url && changeInfo.url.includes('kommo.com/leads/pipeline/')) {
-      updateLeadStatuses();
-    }
-  });
-
-  // Carregar configurações iniciais
-  chrome.storage.sync.get(['leadStatuses', 'debugMode'], (result) => {
-    // Configura debug mode
-    debugMode = result.debugMode || false;
-    logsContainer.classList.toggle('visible', debugMode);
-    
-    // Carrega status dos leads
+  // Carrega os status salvos do storage ao iniciar
+  chrome.storage.sync.get(['leadStatuses'], (result) => {
     if (result.leadStatuses && result.leadStatuses.length > 0) {
-      leadStatus.innerHTML = result.leadStatuses
-        .map(status => `<option value="${status.id}">${status.name}</option>`)
-        .join('');
-      addLog('✅ Status dos leads carregados');
+      leadStatus.innerHTML = '';
+      const defaultOption = document.createElement('option');
+      defaultOption.value = '';
+      defaultOption.textContent = 'Selecione um status';
+      leadStatus.appendChild(defaultOption);
+      
+      result.leadStatuses.forEach(status => {
+        const option = document.createElement('option');
+        option.value = status.id;
+        option.textContent = status.name;
+        leadStatus.appendChild(option);
+      });
+      
+      addLog('✅ Status carregados do cache', 'info');
     } else {
       leadStatus.innerHTML = '<option value="">Abra o Kommo para carregar os status</option>';
-      addLog('⚠️ Abra o Kommo para carregar os status dos leads');
+      addLog('⚠️ Abra o Kommo para carregar os status', 'info');
     }
   });
 
-  // Função para atualizar o preview da nota
-  function updateNotePreview() {
-    const now = new Date().toLocaleString('pt-BR');
-    const type = noteTypeSelect.value;
-    
-    if (type === 'custom') {
-      const customText = customNoteInput.value.trim();
-      notePreview.textContent = noteTemplates.custom(now, customText);
-    } else {
-      notePreview.textContent = noteTemplates[type](now);
-    }
-  }
-
-  // Event listeners para notas
-  noteTypeSelect.addEventListener('change', () => {
-    const isCustom = noteTypeSelect.value === 'custom';
-    customNoteContainer.style.display = isCustom ? 'block' : 'none';
-    updateNotePreview();
-  });
-
-  customNoteInput.addEventListener('input', updateNotePreview);
-
-  // Inicializa o preview
-  updateNotePreview();
-
-  // Salva as configurações de nota quando mudar
-  function saveNoteSettings() {
-    const settings = {
-      noteType: noteTypeSelect.value,
-      customNote: customNoteInput.value
-    };
-    chrome.storage.sync.set({ noteSettings: settings });
-  }
-
-  // Carrega as configurações de nota
-  chrome.storage.sync.get(['noteSettings'], (result) => {
-    if (result.noteSettings) {
-      noteTypeSelect.value = result.noteSettings.noteType;
-      customNoteInput.value = result.noteSettings.customNote;
-      const isCustom = result.noteSettings.noteType === 'custom';
-      customNoteContainer.style.display = isCustom ? 'block' : 'none';
-      updateNotePreview();
-    }
-  });
-
-  // Event listeners para salvar configurações
-  noteTypeSelect.addEventListener('change', saveNoteSettings);
-  customNoteInput.addEventListener('input', saveNoteSettings);
-
-  // Event listener para o botão de iniciar
-  startDialerButton.addEventListener('click', async () => {
-    try {
-      const statusId = document.getElementById('lead-status').value;
-      const count = document.getElementById('lead-count').value;
-      
-      if (!statusId) {
-        showError('Selecione um status de lead');
-        return;
-      }
-
-      if (!count || isNaN(count) || count < 1) {
-        showError('Digite uma quantidade válida de leads');
-        return;
-      }
-      
-      // Busca a aba ativa do Kommo
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      if (!tab) {
-        showError('Nenhuma aba ativa encontrada');
-        return;
-      }
-      
-      // Verifica se está na página correta
-      if (!tab.url || !tab.url.includes('/leads/pipeline/')) {
-        showError('Navegue para a página de Pipeline no Kommo');
-        return;
-      }
-      
-      addLog('🔍 Buscando leads...');
-      
-      // Busca os leads da página
-      const scriptResult = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: (statusId, count) => {
-          // Verifica se estamos na página correta
-          if (!window.location.pathname.includes('/leads/pipeline/')) {
-            return { error: 'Navegue para a página de Pipeline no Kommo' };
-          }
-
-          // Extrai o código do funil da URL completa usando regex melhorado
-          const pipelineMatch = window.location.href.match(/\/leads\/pipeline\/(\d+)/);
-          const pipelineId = pipelineMatch ? pipelineMatch[1] : null;
-          
-          console.log('Debug URL:', {
-            url: window.location.href,
-            pathname: window.location.pathname,
-            pipelineMatch,
-            pipelineId
-          });
-          
-          if (!pipelineId) {
-            return { error: 'ID do funil não encontrado na URL' };
-          }
-          
-          // Clica no status para filtrar
-          const statusElement = document.querySelector(`#status_id_${statusId}`);
-          if (!statusElement) {
-            return { error: 'Status não encontrado' };
-          }
-          
-          statusElement.click();
-
-          // Aguarda carregar os leads e retorna
-          return new Promise((resolve) => {
-            setTimeout(() => {
-              const leads = Array.from(document.querySelectorAll('.pipeline_leads__item'))
-                .slice(0, count)
-                .map(lead => {
-                  const nameEl = lead.querySelector('.pipeline_leads__title-text');
-                  const phoneEl = lead.querySelector('.pipeline_leads__note');
-                  const phone = phoneEl ? phoneEl.textContent.trim().replace(/[^\d+]/g, '') : '';
-                  const detailsUrl = nameEl ? nameEl.getAttribute('href') : '';
-                  
-                  return {
-                    id: lead.getAttribute('data-id'),
-                    name: nameEl ? nameEl.textContent.trim() : '',
-                    phone: phone,
-                    detailsUrl: detailsUrl
-                  };
-                })
-                .filter(lead => lead.phone);
-
-              console.log('Debug Leads:', {
-                total: leads.length,
-                pipelineId,
-                firstLead: leads[0]
-              });
-
-              resolve({ leads, pipelineId });
-            }, 1000);
-          });
-        },
-        args: [statusId, count]
-      });
-      
-      // Valida o resultado do script
-      if (!scriptResult || !Array.isArray(scriptResult) || scriptResult.length === 0) {
-        showError('Erro ao executar script de busca');
-        return;
-      }
-
-      const result = scriptResult[0].result;
-      
-      // Valida o resultado
-      if (!result) {
-        showError('Nenhum resultado retornado');
-        return;
-      }
-      
-      // Verifica se há erro
-      if (result.error) {
-        showError(result.error);
-        return;
-      }
-      
-      // Valida leads e pipelineId
-      if (!result.leads || !Array.isArray(result.leads)) {
-        showError('Formato de leads inválido');
-        return;
-      }
-      
-      if (!result.pipelineId) {
-        showError('ID do funil não encontrado');
-        return;
-      }
-      
-      if (result.leads.length === 0) {
-        showError('Nenhum lead encontrado com telefone');
-        return;
-      }
-      
-      addLog(`✅ ${result.leads.length} leads encontrados no funil ${result.pipelineId}`);
-      console.log('Debug Final:', {
-        leads: result.leads,
-        pipelineId: result.pipelineId
-      });
-      
-      // Inclui as configurações de nota
-      const noteSettings = {
-        type: noteTypeSelect.value,
-        customText: customNoteInput.value
-      };
-      
-      // Inicia o discador com os leads, ID do funil e configurações de nota
-      chrome.runtime.sendMessage({
-        action: 'startDialer',
-        leads: result.leads,
-        pipelineId: result.pipelineId,
-        noteSettings: noteSettings
-      }, (response) => {
-        if (response && response.success) {
-          updateProgress({
-            currentLeads: result.leads,
-            currentLeadIndex: 0,
-            isRunning: true,
-            isPaused: false
-          });
-          addLog('✅ Discador iniciado com sucesso');
-        } else {
-          showError('Erro ao iniciar o discador');
-        }
-      });
-    } catch (error) {
-      console.error('Erro completo:', error);
-      showError(error.message || 'Erro desconhecido ao iniciar discador');
-    }
-  });
-
-  // Event listener para o botão de configurações
+  // Event Listeners
   settingsButton.addEventListener('click', () => {
     chrome.runtime.openOptionsPage();
   });
 
-  // Event listener para o botão de pausar
-  pauseDialerButton.addEventListener('click', () => {
-    // Inverte o estado atual
-    state.isPaused = !state.isPaused;
-    const action = state.isPaused ? 'pauseDialer' : 'resumeDialer';
-    
-    chrome.runtime.sendMessage({ action }, (response) => {
-      if (response.success) {
-        addLog(state.isPaused ? '⏸️ Discador pausado' : '▶️ Discador retomado');
-      } else {
-        // Se falhou, reverte o estado
-        state.isPaused = !state.isPaused;
+  startDialerButton.addEventListener('click', async () => {
+    try {
+      const statusId = leadStatus.value;
+      const count = parseInt(leadCount.value);
+      
+      if (!statusId) {
+        throw new Error('Selecione um status');
       }
+      
+      if (!count || count < 1) {
+        throw new Error('Quantidade de leads inválida');
+      }
+      
+      const tab = await getKommoTab();
+      const { leads, pipelineId } = await getLeadsFromPage(tab.id, statusId, count);
+      
+      if (!leads || leads.length === 0) {
+        throw new Error('Nenhum lead encontrado com telefone neste status');
+      }
+
+      // Renderiza a lista de leads
+      renderLeadsList(leads);
+      
+      // Inicia o discador
+      chrome.runtime.sendMessage({
+        action: 'startDialer',
+        leads,
+        pipelineId
+      }, (response) => {
+        if (!response || !response.success) {
+          showError('Erro ao iniciar discador');
+          return;
+        }
+        addLog('🚀 Discador iniciado', 'success');
+      });
+
+    } catch (error) {
+      showError(error.message);
+    }
+  });
+
+  pauseDialerButton.addEventListener('click', () => {
+    const isPaused = pauseDialerButton.classList.contains('paused');
+    
+    chrome.runtime.sendMessage({
+      action: isPaused ? 'resumeDialer' : 'pauseDialer'
+    }, (response) => {
+      if (!response || !response.success) {
+        showError('Erro ao ' + (isPaused ? 'retomar' : 'pausar') + ' discador');
+        return;
+      }
+      
+      pauseDialerButton.classList.toggle('paused');
+      pauseDialerButton.innerHTML = isPaused ? `
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      ` : `
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      `;
+      
+      addLog(isPaused ? '▶️ Discador retomado' : '⏸️ Discador pausado', 'info');
     });
   });
 
-  // Carrega o estado inicial
-  chrome.runtime.sendMessage({ action: 'getState' }, (state) => {
-    if (state.currentLeads) {
-      renderLeadsList(state.currentLeads);
+  // Funções da seção de notas
+  function showNoteSection() {
+    noteSection.style.display = 'block';
+    // Scroll para a seção de notas
+    noteSection.scrollIntoView({ behavior: 'smooth' });
+  }
+
+  function hideNoteSection() {
+    noteSection.style.display = 'none';
+    noteTypeSelect.value = '';
+    customNoteInput.value = '';
+    customNoteContainer.style.display = 'none';
+  }
+
+  // Event listeners da seção de notas
+  noteTypeSelect.addEventListener('change', () => {
+    const isCustom = noteTypeSelect.value === 'summary';
+    customNoteContainer.style.display = isCustom ? 'block' : 'none';
+    if (isCustom) {
+      customNoteInput.focus();
     }
-    updateProgress(state);
   });
 
-  // Listener para atualizações de estado do background
+  // Modifica o listener do botão de encerrar ligação
+  endCallButton.addEventListener('click', async () => {
+    try {
+      // Desabilita o botão para evitar duplo clique
+      endCallButton.disabled = true;
+      
+      // Envia mensagem para encerrar a ligação no 3CX
+      const response = await new Promise(resolve => {
+        chrome.runtime.sendMessage({
+          action: 'endCall'
+        }, resolve);
+      });
+
+      if (!response || !response.success) {
+        throw new Error('Erro ao encerrar ligação');
+      }
+
+    } catch (error) {
+      showError(error.message);
+      endCallButton.disabled = false;
+    }
+  });
+
+  // Ajusta o listener do botão de salvar nota
+  saveNoteButton.addEventListener('click', async () => {
+    try {
+      const type = noteTypeSelect.value;
+      
+      if (!type) {
+        throw new Error('Por favor, selecione um motivo para a ligação');
+      }
+
+      const note = type === 'summary' ? customNoteInput.value.trim() : noteTemplates[type]();
+      
+      if (!note) {
+        throw new Error('Por favor, digite um resumo da conversa');
+      }
+
+      const tab = await getKommoTab();
+      
+      // Executa o script para adicionar a nota no Kommo
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: (noteText) => {
+          return new Promise((resolve, reject) => {
+            try {
+              // Seleciona o tipo "Nota" no seletor
+              const noteSwitcher = document.querySelector('.js-switcher-note');
+              if (!noteSwitcher) {
+                throw new Error('Seletor de tipo de nota não encontrado');
+              }
+              noteSwitcher.click();
+
+              // Aguarda o campo de nota aparecer
+              setTimeout(() => {
+                // Encontra o campo de texto da nota
+                const noteField = document.querySelector('.feed-compose__message');
+                if (!noteField) {
+                  throw new Error('Campo de nota não encontrado');
+                }
+
+                // Limpa o campo e insere o texto da nota
+                noteField.textContent = noteText;
+
+                // Dispara evento de input para ativar o botão de adicionar
+                noteField.dispatchEvent(new Event('input', { bubbles: true }));
+
+                // Encontra e clica no botão de adicionar
+                const addButton = document.querySelector('.js-note-submit');
+                if (!addButton) {
+                  throw new Error('Botão de adicionar não encontrado');
+                }
+
+                // Clica no botão
+                addButton.click();
+
+                // Aguarda um pouco para garantir que a nota foi salva
+                setTimeout(() => resolve(true), 2000);
+              }, 500);
+            } catch (error) {
+              reject(error);
+            }
+          });
+        },
+        args: [note]
+      });
+
+      addLog('✅ Nota salva com sucesso', 'success');
+      
+      // Esconde a seção de notas
+      hideNoteSection();
+
+      // Aguarda um momento antes de prosseguir
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Notifica o background que a nota foi salva
+      const noteSavedResponse = await new Promise(resolve => {
+        chrome.runtime.sendMessage({
+          action: 'noteSaved'
+        }, resolve);
+      });
+
+      if (!noteSavedResponse || !noteSavedResponse.success) {
+        throw new Error('Erro ao confirmar salvamento da nota');
+      }
+
+      addLog('📞 Iniciando próxima ligação...', 'info');
+
+    } catch (error) {
+      showError(error.message);
+    }
+  });
+
+  // Listener para atualizações de estado
   chrome.runtime.onMessage.addListener((message) => {
     if (message.type === 'stateUpdate') {
       updateProgress(message.state);
+    } else if (message.type === 'callEnded') {
+      // Quando a ligação terminar no 3CX
+      stopCallTimer();
+      endCallButton.disabled = true;
+      pauseDialerButton.disabled = true;
+      showNoteSection();
+      addLog('📞 Ligação encerrada', 'info');
+      addLog('📝 Aguardando nota...', 'info');
     }
   });
 
-  // Listener para mensagens do background
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.type === 'debug' && debugMode) {
-      addLog(request.message);
+  // Carrega o estado inicial
+  chrome.runtime.sendMessage({ action: 'getState' }, (response) => {
+    if (response) {
+      updateProgress(response);
     }
-    // Atualiza os status quando receber do content script
-    else if (request.type === 'leadStatuses') {
-      leadStatus.innerHTML = request.statuses
-        .map(status => `<option value="${status.id}">${status.name}</option>`)
-        .join('');
-      addLog('✅ Status dos leads atualizados');
-    }
-    // Atualiza a interface quando o estado mudar
-    else if (request.type === 'stateUpdate') {
-      if (request.state.currentLeads) {
-        renderLeadsList(request.state.currentLeads);
-      }
-      updateProgress(request.state);
-    }
+  });
+
+  // Carrega os status do funil
+  loadPipelineStatuses();
+
+  // Carrega configurações iniciais
+  chrome.storage.sync.get(['debugMode'], (result) => {
+    // Configura debug mode
+    debugMode = result.debugMode || false;
+    logsContainer.classList.toggle('visible', debugMode);
+    forceResetButton.classList.toggle('visible', debugMode);
+  });
+
+  // Botão de reset forçado (debug)
+  forceResetButton.addEventListener('click', () => {
+    chrome.runtime.sendMessage({ action: 'forceReset' }, () => {
+      addLog('🔄 Reset forçado executado', 'info');
+      
+      // Limpa o estado local
+      state = {
+        currentLeads: null,
+        currentLeadIndex: 0,
+        isPaused: false,
+        isRunning: false,
+        countdown: 0
+      };
+
+      // Limpa a interface
+      emptyState.style.display = 'flex';
+      statusCounter.style.display = 'none';
+      statusTimer.style.display = 'none';
+      progressBar.style.width = '0%';
+      leadsList.innerHTML = '';
+      currentCountSpan.textContent = '0';
+      totalCountSpan.textContent = '0';
+      startDialerButton.disabled = false;
+      pauseDialerButton.classList.add('hidden');
+      pauseDialerButton.classList.remove('paused');
+      endCallButton.disabled = true;
+      
+      // Para o timer
+      stopCallTimer();
+      
+      // Atualiza o progresso
+      updateProgress(state);
+    });
   });
 }); 

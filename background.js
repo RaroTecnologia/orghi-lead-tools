@@ -10,17 +10,8 @@ let state = {
   waitTimer: null,
   countdown: 0,
   pipelineId: null,
-  noteSettings: null
-};
-
-// Templates de notas
-const noteTemplates = {
-  auto: (date) => `Chamada realizada em ${date}`,
-  'not-interested': (date) => `Chamada realizada em ${date}. Cliente não demonstrou interesse.`,
-  callback: (date) => `Chamada realizada em ${date}. Cliente solicitou retorno em outro momento.`,
-  'wrong-number': (date) => `Chamada realizada em ${date}. Número incorreto.`,
-  'no-answer': (date) => `Chamada realizada em ${date}. Cliente não atendeu.`,
-  custom: (date, text) => `Chamada realizada em ${date}. ${text}`
+  waitingNote: false,
+  noteResolver: null
 };
 
 // Função para verificar se uma URL é do 3CX
@@ -193,6 +184,10 @@ async function makeCall(phone) {
                   // Se estava em ligação e terminou
                   if (wasInCall && !isBusy && !isRinging) {
                     console.log('✅ Chamada finalizada');
+                    // Notifica o popup que a ligação terminou
+                    chrome.runtime.sendMessage({
+                      type: 'callEnded'
+                    });
                     resolve();
                     return;
                   }
@@ -335,8 +330,7 @@ async function saveState() {
       currentLeadIndex: state.currentLeadIndex,
       isPaused: state.isPaused,
       isRunning: state.isRunning,
-      pipelineId: state.pipelineId,
-      noteSettings: state.noteSettings
+      pipelineId: state.pipelineId
     }
   });
   // Notifica o popup sobre a mudança de estado
@@ -375,187 +369,13 @@ function formatTime(seconds) {
   return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
 }
 
-// Função para buscar leads diretamente na página
-async function getLeadsFromPage(tabId, statusId, count) {
-  const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: (statusId, count) => {
-      // Verifica se estamos na página correta
-      if (!window.location.pathname.includes('/leads/pipeline/')) {
-        return { error: 'Navegue para a página de Pipeline no Kommo' };
-      }
-
-      // Extrai o código do funil da URL completa
-      const pipelineId = window.location.pathname.match(/\/leads\/pipeline\/(\d+)/)?.[1];
-      if (!pipelineId) {
-        return { error: 'ID do funil não encontrado na URL' };
-      }
-      
-      // Clica no status para filtrar
-      const statusElement = document.querySelector(`#status_id_${statusId}`);
-      if (!statusElement) {
-        return { error: 'Status não encontrado' };
-      }
-
-      // Aguarda carregar os leads e retorna
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          const leads = Array.from(document.querySelectorAll('.pipeline_leads__item'))
-            .slice(0, count)
-            .map(lead => {
-              const nameEl = lead.querySelector('.pipeline_leads__title-text');
-              const phoneEl = lead.querySelector('.pipeline_leads__note');
-              const phone = phoneEl ? phoneEl.textContent.trim().replace(/[^\d+]/g, '') : '';
-              const detailsUrl = nameEl ? nameEl.getAttribute('href') : '';
-              
-              return {
-                id: lead.getAttribute('data-id'),
-                name: nameEl ? nameEl.textContent.trim() : '',
-                phone: phone,
-                detailsUrl: detailsUrl
-              };
-            })
-            .filter(lead => lead.phone);
-
-          resolve({ leads, pipelineId });
-        }, 1000);
-      });
-    },
-    args: [statusId, count]
-  });
-
-  return results[0].result;
-}
-
-// Função para retornar ao funil
-async function returnToPipeline(pipelineId) {
-  try {
-    const domain = (await chrome.storage.sync.get(['kommoDomain'])).kommoDomain || 'app';
-    const tabs = await chrome.tabs.query({url: "*://*.kommo.com/*"});
-    
-    if (tabs.length > 0) {
-      const pipelineUrl = `https://${domain}.kommo.com/leads/pipeline/${pipelineId}`;
-      console.log('🔄 Retornando ao funil:', {
-        pipelineId,
-        url: pipelineUrl,
-        tabId: tabs[0].id
-      });
-      
-      return new Promise((resolve) => {
-        function onTabUpdate(tabId, changeInfo, tab) {
-          // Verifica se a URL contém exatamente o ID do funil
-          if (tabId === tabs[0].id && changeInfo.status === 'complete' && tab.url.includes(`/pipeline/${pipelineId}`)) {
-            chrome.tabs.onUpdated.removeListener(onTabUpdate);
-            resolve();
-          }
-        }
-        
-        chrome.tabs.onUpdated.addListener(onTabUpdate);
-        
-        chrome.tabs.update(tabs[0].id, { 
-          url: pipelineUrl,
-          active: true
-        });
-        
-        // Timeout de segurança após 10 segundos
-        setTimeout(() => {
-          chrome.tabs.onUpdated.removeListener(onTabUpdate);
-          resolve();
-        }, 10000);
-      });
-    }
-  } catch (error) {
-    console.error('❌ Erro ao retornar ao funil:', error);
-  }
-}
-
-// Função para gerar o texto da nota
-function generateNoteText(noteSettings) {
-  const now = new Date().toLocaleString('pt-BR');
-  const { type, customText } = noteSettings;
-  
-  if (type === 'custom') {
-    return noteTemplates.custom(now, customText);
-  }
-  
-  return noteTemplates[type](now);
-}
-
-// Função para adicionar nota ao lead
-async function addNoteToLead(leadId, noteSettings) {
-  try {
-    // Seleciona a opção "Nota"
-    const noteOptionSelector = '.tips-item.js-tips-item.js-switcher-note';
-    await chrome.scripting.executeScript({
-      target: { tabId: threeCXTabId },
-      func: (selector) => {
-        const noteOption = document.querySelector(selector);
-        if (noteOption) {
-          noteOption.click();
-        } else {
-          throw new Error('Opção de nota não encontrada');
-        }
-      },
-      args: [noteOptionSelector]
-    });
-
-    // Aguarda o campo de nota aparecer
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Gera o texto da nota
-    const noteText = generateNoteText(noteSettings);
-
-    // Insere o texto da nota
-    const result = await chrome.scripting.executeScript({
-      target: { tabId: threeCXTabId },
-      func: (text) => {
-        const noteField = document.querySelector('.js-note-text');
-        const addButton = document.querySelector('.js-note-add');
-        
-        if (!noteField || !addButton) {
-          throw new Error('Campo de nota ou botão não encontrado');
-        }
-        
-        noteField.value = text;
-        addButton.click();
-        
-        return true;
-      },
-      args: [noteText]
-    });
-
-    // Aguarda a nota ser adicionada
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    return result[0].result;
-  } catch (error) {
-    console.error('Erro ao adicionar nota:', error);
-    throw error;
-  }
-}
-
 // Função para processar próximo lead
 async function processNextLead() {
-  if (!state.isRunning || state.isPaused || state.currentLeadIndex >= state.currentLeads.length) {
+  if (!state.currentLeads || state.currentLeadIndex >= state.currentLeads.length) {
     console.log('✅ Todos os leads foram processados');
-    
-    // Aguarda 2 segundos antes de retornar ao funil
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    
-    // Retorna ao funil original antes de finalizar
-    if (state.pipelineId) {
-      console.log('🔄 Retornando ao funil:', state.pipelineId);
-      await returnToPipeline(state.pipelineId);
-      // Aguarda mais 2 segundos após retornar ao funil
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    } else {
-      console.log('⚠️ ID do funil não encontrado, não será possível retornar');
-    }
-    
     state.isRunning = false;
     state.currentLeads = null;
     state.currentLeadIndex = 0;
-    state.pipelineId = null;
     await saveState();
     return;
   }
@@ -588,17 +408,6 @@ async function processNextLead() {
           url: `https://${domain}.kommo.com${lead.detailsUrl}`,
           active: false
         });
-
-        // Aguarda a página carregar
-        await new Promise(resolve => {
-          function onTabUpdate(tabId, changeInfo, tab) {
-            if (tabId === tabs[0].id && changeInfo.status === 'complete') {
-              chrome.tabs.onUpdated.removeListener(onTabUpdate);
-              resolve();
-            }
-          }
-          chrome.tabs.onUpdated.addListener(onTabUpdate);
-        });
       }
     }
     
@@ -612,17 +421,16 @@ async function processNextLead() {
 
     console.log('✅ Chamada finalizada com sucesso');
 
-    // Adiciona nota após a chamada
-    const now = new Date().toLocaleString('pt-BR');
-    const noteResult = await addNoteToLead(lead.id, state.noteSettings);
-    
-    if (noteResult.error) {
-      console.error('❌ Erro ao adicionar nota:', noteResult.error);
-    } else {
-      console.log('✅ Nota adicionada com sucesso');
-    }
-
     if (state.isPaused) return;
+
+    // Aguarda a nota ser salva
+    console.log('📝 Aguardando nota ser salva...');
+    await new Promise((resolve) => {
+      state.waitingNote = true;
+      state.noteResolver = resolve;
+    });
+    state.waitingNote = false;
+    console.log('✅ Nota salva, continuando fluxo...');
 
     // Se ainda há leads para processar
     if (state.currentLeadIndex < state.currentLeads.length - 1) {
@@ -656,26 +464,64 @@ async function processNextLead() {
             console.log('⏰ Timer finalizado');
             clearInterval(state.waitTimer);
             state.waitTimer = null;
+            state.countdown = 0;
+            broadcastState();
             resolve();
           }
         }, 1000);
       });
 
-      // Processa o próximo lead
-      processNextLead();
+      if (!state.isPaused) {
+        processNextLead();
+      }
     } else {
-      // Se era o último lead, incrementa o índice e chama processNextLead para finalizar
+      // Se é o último lead, incrementa o índice e aguarda 2 segundos antes de finalizar
       state.currentLeadIndex++;
       await saveState();
-      processNextLead();
+      
+      // Retorna para a página de pipeline
+      const tabs = await chrome.tabs.query({url: "*://*.kommo.com/*"});
+      if (tabs.length > 0) {
+        const domain = (await chrome.storage.sync.get(['kommoDomain'])).kommoDomain || 'app';
+        console.log('🔄 Retornando para a página de pipeline...');
+        await chrome.tabs.update(tabs[0].id, { 
+          url: `https://${domain}.kommo.com/leads/pipeline/${state.pipelineId || 1}`,
+          active: false
+        });
+      }
+      
+      // Aguarda 2 segundos antes de finalizar o discador
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Finaliza o discador quando todos os leads foram processados
+      console.log('✅ Todas as ligações foram concluídas');
+      state.isRunning = false;
+      state.currentLeads = null;
+      state.currentLeadIndex = 0;
+      await saveState();
     }
   } catch (error) {
     console.error('❌ Erro ao processar lead:', error);
     
-    // Se houver erro, aguarda 5 segundos antes de tentar o próximo
+    // Em caso de erro, tenta o próximo lead após 5 segundos
     if (!state.isPaused) {
+      console.log('⏳ Tentando próximo lead em 5 segundos...');
       await new Promise(resolve => setTimeout(resolve, 5000));
-      processNextLead();
+      
+      if (!state.isPaused) {
+        if (state.currentLeadIndex < state.currentLeads.length - 1) {
+          state.currentLeadIndex++;
+          await saveState();
+          processNextLead();
+        } else {
+          // Se era o último lead, finaliza após o erro
+          console.log('✅ Finalizando discador após erro no último lead');
+          state.isRunning = false;
+          state.currentLeads = null;
+          state.currentLeadIndex = 0;
+          await saveState();
+        }
+      }
     }
   }
 }
@@ -686,7 +532,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'find3CXTab') {
     find3CXTab().then(sendResponse);
-    return true; // Mantém o canal de mensagem aberto
+    return true;
   }
   
   if (request.action === 'makeCall') {
@@ -694,7 +540,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.error('Erro ao fazer ligação:', error);
       sendResponse({ success: false, error: error.message });
     });
-    return true; // Mantém o canal de mensagem aberto
+    return true;
+  }
+
+  if (request.action === 'noteSaved') {
+    // Resolve a Promise que está aguardando a nota ser salva
+    if (state.waitingNote && state.noteResolver) {
+      state.noteResolver();
+    }
+    sendResponse({ success: true });
   }
 
   if (request.action === 'checkStatus') {
@@ -745,7 +599,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     state.isPaused = false;
     state.isRunning = true;
     state.pipelineId = request.pipelineId;
-    state.noteSettings = request.noteSettings;
     saveState();
     processNextLead();
     sendResponse({ success: true });
@@ -765,6 +618,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     state.isPaused = false;
     saveState();
     processNextLead();
+    sendResponse({ success: true });
+  }
+
+  else if (request.action === 'forceReset') {
+    // Limpa o estado
+    state = {
+      currentLeads: null,
+      currentLeadIndex: 0,
+      isPaused: false,
+      isRunning: false,
+      waitTimer: null,
+      countdown: 0,
+      pipelineId: null,
+      waitingNote: false,
+      noteResolver: null
+    };
+    
+    // Limpa o timer se existir
+    if (state.waitTimer) {
+      clearInterval(state.waitTimer);
+      state.waitTimer = null;
+    }
+    
+    // Salva o estado limpo
+    saveState();
     sendResponse({ success: true });
   }
 
