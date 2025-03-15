@@ -145,6 +145,139 @@
     });
   }
 
+  // Função para ocultar linhas de WhatsApp não desejadas
+  function filterWhatsappLines(officialLine) {
+    debugLog(`Iniciando filterWhatsappLines com linha: ${officialLine}`);
+
+    // Função que aplica o filtro em um elemento
+    function applyFilter(element) {
+      debugLog('Aplicando filtro em elemento:', element);
+      const items = element.querySelectorAll('.tips-item');
+      items.forEach(item => {
+        // Verifica se é um item de WhatsApp (procurando pela imagem do WhatsApp)
+        const isWhatsApp = item.querySelector('img[src*="whatsapp"]') || 
+                          item.querySelector('img[src*="waba"]') ||
+                          item.querySelector('img[src*="amocrmwa"]');
+        
+        if (isWhatsApp) {
+          const itemText = item.textContent.trim();
+          debugLog(`Item WhatsApp encontrado: ${itemText}`);
+          
+          if (!itemText.includes(officialLine)) {
+            debugLog(`Ocultando: ${itemText}`);
+            item.style.display = 'none';
+          } else {
+            debugLog(`Mantendo visível: ${itemText}`);
+            item.style.display = '';
+          }
+        }
+      });
+    }
+
+    // Função para filtrar os mensageiros no perfil
+    function filterProfileMessengers() {
+      const messengers = document.querySelectorAll('.profile_messengers-item');
+      messengers.forEach(messenger => {
+        const isWhatsAppLite = messenger.classList.contains('profile_messengers-item-com.amocrm.amocrmwa');
+        const isCloudAPI = messenger.classList.contains('profile_messengers-item-waba');
+        
+        if (isWhatsAppLite) {
+          debugLog('Ocultando WhatsApp Lite');
+          messenger.parentElement.style.display = 'none';
+          // Oculta também o contador +1 se existir
+          const counter = messenger.parentElement.querySelector('.profile_messengers-counter');
+          if (counter) {
+            counter.style.display = 'none';
+          }
+        } else if (isCloudAPI) {
+          debugLog('Mantendo Cloud API visível');
+          messenger.style.display = '';
+          // Ajusta o wrapper do Cloud API
+          const wrapper = messenger.closest('.profile_messengers-item-wrapper');
+          if (wrapper) {
+            wrapper.style.marginLeft = '0';
+            wrapper.style.paddingLeft = '0';
+          }
+          // Ajusta o container dos mensageiros
+          const container = messenger.closest('.profile_messengers-inner');
+          if (container) {
+            container.style.marginLeft = '0';
+            container.style.paddingLeft = '0';
+          }
+        }
+      });
+    }
+
+    // Função para verificar se um elemento é um dropdown relevante
+    function isRelevantDropdown(element) {
+      return element && 
+             element.classList.contains('tips__inner') && 
+             element.classList.contains('custom-scroll');
+    }
+
+    // Observer para mudanças no DOM
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        // Verifica nodes adicionados
+        mutation.addedNodes.forEach((node) => {
+          if (node.nodeType === 1) { // Elemento HTML
+            if (isRelevantDropdown(node)) {
+              debugLog('Dropdown adicionado:', node);
+              applyFilter(node);
+            }
+            // Procura por dropdowns dentro do node adicionado
+            const dropdowns = node.querySelectorAll('.tips__inner.custom-scroll');
+            dropdowns.forEach(dropdown => {
+              debugLog('Dropdown encontrado dentro do node:', dropdown);
+              applyFilter(dropdown);
+            });
+          }
+        });
+
+        // Verifica o target da mutação
+        if (mutation.target.nodeType === 1) {
+          if (isRelevantDropdown(mutation.target)) {
+            debugLog('Dropdown modificado:', mutation.target);
+            applyFilter(mutation.target);
+          }
+          // Verifica se há mensageiros no perfil
+          filterProfileMessengers();
+        }
+      });
+    });
+
+    // Configuração do observer
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'data-type']
+    });
+
+    // Verifica dropdowns já existentes
+    debugLog('Verificando dropdowns existentes...');
+    const existingDropdowns = document.querySelectorAll('.tips__inner.custom-scroll');
+    existingDropdowns.forEach(dropdown => {
+      debugLog('Dropdown existente encontrado:', dropdown);
+      applyFilter(dropdown);
+    });
+
+    // Verifica mensageiros existentes
+    debugLog('Verificando mensageiros existentes...');
+    filterProfileMessengers();
+  }
+
+  // Carrega a configuração inicial do WhatsApp
+  debugLog('Carregando configuração do WhatsApp...');
+  chrome.storage.sync.get(['whatsappLine'], function(result) {
+    if (result.whatsappLine) {
+      debugLog(`Linha configurada: ${result.whatsappLine}`);
+      filterWhatsappLines(result.whatsappLine);
+    } else {
+      debugLog('Nenhuma linha configurada ainda');
+    }
+  });
+
   // Inicia observação quando a página carregar
   debugLog('Content script carregado!');
   observeStatusChanges();
@@ -164,6 +297,14 @@
       getLeadsFromStatus(request.status, request.count)
         .then(sendResponse);
       return true; // Mantém a conexão aberta para resposta assíncrona
+    }
+
+    // Atualiza linha do WhatsApp
+    if (request.action === 'updateWhatsappLine') {
+      debugLog(`Atualizando linha para: ${request.line}`);
+      filterWhatsappLines(request.line);
+      sendResponse({ success: true });
+      return;
     }
   });
 })(); 
