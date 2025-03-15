@@ -1,0 +1,91 @@
+body {
+  width: 300px;
+  padding: 15px;
+  font-family: Arial, sans-serif;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+h1 {
+  font-size: 18px;
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0 0 10px 0;
+  color: #666;
+}
+
+.section {
+  background: #f5f5f5;
+  padding: 15px;
+  border-radius: 5px;
+}
+
+button {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  padding: 8px 15px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 5px;
+}
+
+button:hover {
+  background: #45a049;
+}
+
+#stop-dialer {
+  background: #f44336;
+}
+
+#stop-dialer:hover {
+  background: #da190b;
+}
+
+select, input[type="text"] {
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.form-group {
+  margin-bottom: 15px;
+}
+
+label {
+  display: block;
+  margin-bottom: 5px;
+  color: #666;
+}
+
+.status-message {
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 4px;
+  display: none;
+}
+
+.status-message.success {
+  display: block;
+  background-color: #dff0d8;
+  color: #3c763d;
+  border: 1px solid #d6e9c6;
+}
+
+.status-message.error {
+  display: block;
+  background-color: #f2dede;
+  color: #a94442;
+  border: 1px solid #ebccd1;
+} 

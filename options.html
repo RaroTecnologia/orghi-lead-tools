@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Orghi Lead Tools - Opções</title>
+  <style>
+    body {
+      padding: 20px;
+      font-family: Arial, sans-serif;
+    }
+    
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    h1 {
+      color: #333;
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+    
+    .section {
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+    
+    h2 {
+      color: #666;
+      font-size: 18px;
+      margin-top: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .status-badge {
+      font-size: 12px;
+      padding: 4px 8px;
+      border-radius: 12px;
+      background: #ddd;
+    }
+
+    .status-badge.connected {
+      background: #dff0d8;
+      color: #3c763d;
+    }
+
+    .status-badge.disconnected {
+      background: #f2dede;
+      color: #a94442;
+    }
+    
+    .form-group {
+      margin-bottom: 15px;
+    }
+    
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #666;
+    }
+    
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button.secondary {
+      background: #5bc0de;
+    }
+    
+    button:hover {
+      opacity: 0.9;
+    }
+    
+    .status-message {
+      margin-top: 10px;
+      padding: 8px;
+      border-radius: 4px;
+      display: none;
+    }
+    
+    .status-message.success {
+      display: block;
+      background-color: #dff0d8;
+      color: #3c763d;
+      border: 1px solid #d6e9c6;
+    }
+    
+    .status-message.error {
+      display: block;
+      background-color: #f2dede;
+      color: #a94442;
+      border: 1px solid #ebccd1;
+    }
+
+    .debug-info {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #666;
+      white-space: pre-wrap;
+      background: #fff;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #ddd;
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Orghi Lead Tools - Configurações</h1>
+    
+    <div class="section">
+      <h2>Configurações do WhatsApp</h2>
+      <div class="form-group">
+        <label for="whatsappLine">Nome da linha oficial:</label>
+        <input type="text" id="whatsappLine" placeholder="Ex: Raro">
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Configurações do Discador</h2>
+      <div class="form-group">
+        <label for="dialerDelay">Tempo entre ligações (segundos):</label>
+        <input type="text" id="dialerDelay" placeholder="Ex: 5">
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>
+        Configurações do 3CX
+        <span id="threeCXStatus" class="status-badge disconnected">Desconectado</span>
+      </h2>
+      <div class="form-group">
+        <label for="threeCXDomain">Domínio do 3CX:</label>
+        <input type="text" id="threeCXDomain" placeholder="Ex: empresa.3cx.cloud">
+        <small style="color: #666; display: block; margin-top: 5px;">Digite o domínio completo do seu 3CX PWA</small>
+      </div>
+      <div class="debug-info" id="debugInfo"></div>
+    </div>
+
+    <div class="button-group">
+      <button id="saveAll">Salvar Configurações</button>
+      <button id="scanTabs" class="secondary">Procurar 3CX</button>
+    </div>
+    <div class="status-message" id="statusMessage"></div>
+  </div>
+
+  <script src="src/options.js"></script>
+</body>
+</html> 
