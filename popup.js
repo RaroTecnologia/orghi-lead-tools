@@ -14,12 +14,28 @@ document.addEventListener('DOMContentLoaded', () => {
   const emptyState = document.getElementById('empty-state');
   const statusCounter = document.getElementById('status-counter');
   
+  // Elementos de nota
+  const noteTypeSelect = document.getElementById('note-type');
+  const customNoteContainer = document.getElementById('custom-note-container');
+  const customNoteInput = document.getElementById('custom-note');
+  const notePreview = document.getElementById('note-preview');
+  
   let debugMode = false;
   let state = {
     currentLeads: null,
     currentLeadIndex: 0,
     isPaused: false,
     isRunning: false
+  };
+
+  // Templates de notas
+  const noteTemplates = {
+    auto: (date) => `Chamada realizada em ${date}`,
+    'not-interested': (date) => `Chamada realizada em ${date}. Cliente não demonstrou interesse.`,
+    callback: (date) => `Chamada realizada em ${date}. Cliente solicitou retorno em outro momento.`,
+    'wrong-number': (date) => `Chamada realizada em ${date}. Número incorreto.`,
+    'no-answer': (date) => `Chamada realizada em ${date}. Cliente não atendeu.`,
+    custom: (date, text) => `Chamada realizada em ${date}. ${text}`
   };
 
   // Função para mostrar erros
@@ -311,6 +327,55 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Função para atualizar o preview da nota
+  function updateNotePreview() {
+    const now = new Date().toLocaleString('pt-BR');
+    const type = noteTypeSelect.value;
+    
+    if (type === 'custom') {
+      const customText = customNoteInput.value.trim();
+      notePreview.textContent = noteTemplates.custom(now, customText);
+    } else {
+      notePreview.textContent = noteTemplates[type](now);
+    }
+  }
+
+  // Event listeners para notas
+  noteTypeSelect.addEventListener('change', () => {
+    const isCustom = noteTypeSelect.value === 'custom';
+    customNoteContainer.style.display = isCustom ? 'block' : 'none';
+    updateNotePreview();
+  });
+
+  customNoteInput.addEventListener('input', updateNotePreview);
+
+  // Inicializa o preview
+  updateNotePreview();
+
+  // Salva as configurações de nota quando mudar
+  function saveNoteSettings() {
+    const settings = {
+      noteType: noteTypeSelect.value,
+      customNote: customNoteInput.value
+    };
+    chrome.storage.sync.set({ noteSettings: settings });
+  }
+
+  // Carrega as configurações de nota
+  chrome.storage.sync.get(['noteSettings'], (result) => {
+    if (result.noteSettings) {
+      noteTypeSelect.value = result.noteSettings.noteType;
+      customNoteInput.value = result.noteSettings.customNote;
+      const isCustom = result.noteSettings.noteType === 'custom';
+      customNoteContainer.style.display = isCustom ? 'block' : 'none';
+      updateNotePreview();
+    }
+  });
+
+  // Event listeners para salvar configurações
+  noteTypeSelect.addEventListener('change', saveNoteSettings);
+  customNoteInput.addEventListener('input', saveNoteSettings);
+
   // Event listener para o botão de iniciar
   startDialerButton.addEventListener('click', async () => {
     try {
@@ -450,11 +515,18 @@ document.addEventListener('DOMContentLoaded', () => {
         pipelineId: result.pipelineId
       });
       
-      // Inicia o discador com os leads e o ID do funil
+      // Inclui as configurações de nota
+      const noteSettings = {
+        type: noteTypeSelect.value,
+        customText: customNoteInput.value
+      };
+      
+      // Inicia o discador com os leads, ID do funil e configurações de nota
       chrome.runtime.sendMessage({
         action: 'startDialer',
         leads: result.leads,
-        pipelineId: result.pipelineId
+        pipelineId: result.pipelineId,
+        noteSettings: noteSettings
       }, (response) => {
         if (response && response.success) {
           updateProgress({

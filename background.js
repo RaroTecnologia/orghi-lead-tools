@@ -9,7 +9,18 @@ let state = {
   isRunning: false,
   waitTimer: null,
   countdown: 0,
-  pipelineId: null
+  pipelineId: null,
+  noteSettings: null
+};
+
+// Templates de notas
+const noteTemplates = {
+  auto: (date) => `Chamada realizada em ${date}`,
+  'not-interested': (date) => `Chamada realizada em ${date}. Cliente não demonstrou interesse.`,
+  callback: (date) => `Chamada realizada em ${date}. Cliente solicitou retorno em outro momento.`,
+  'wrong-number': (date) => `Chamada realizada em ${date}. Número incorreto.`,
+  'no-answer': (date) => `Chamada realizada em ${date}. Cliente não atendeu.`,
+  custom: (date, text) => `Chamada realizada em ${date}. ${text}`
 };
 
 // Função para verificar se uma URL é do 3CX
@@ -324,7 +335,8 @@ async function saveState() {
       currentLeadIndex: state.currentLeadIndex,
       isPaused: state.isPaused,
       isRunning: state.isRunning,
-      pipelineId: state.pipelineId
+      pipelineId: state.pipelineId,
+      noteSettings: state.noteSettings
     }
   });
   // Notifica o popup sobre a mudança de estado
@@ -457,69 +469,74 @@ async function returnToPipeline(pipelineId) {
   }
 }
 
+// Função para gerar o texto da nota
+function generateNoteText(noteSettings) {
+  const now = new Date().toLocaleString('pt-BR');
+  const { type, customText } = noteSettings;
+  
+  if (type === 'custom') {
+    return noteTemplates.custom(now, customText);
+  }
+  
+  return noteTemplates[type](now);
+}
+
 // Função para adicionar nota ao lead
-async function addNoteToLead(leadId, note) {
+async function addNoteToLead(leadId, noteSettings) {
   try {
-    const tabs = await chrome.tabs.query({url: "*://*.kommo.com/*"});
-    if (tabs.length === 0) {
-      throw new Error('Nenhuma aba do Kommo encontrada');
-    }
-
-    const result = await chrome.scripting.executeScript({
-      target: { tabId: tabs[0].id },
-      func: (leadId, note) => {
-        // Primeiro seleciona a opção "Nota"
-        const noteOption = document.querySelector('.tips-item.js-tips-item.js-switcher-note');
-        if (!noteOption) {
-          return { error: 'Opção de nota não encontrada' };
+    // Seleciona a opção "Nota"
+    const noteOptionSelector = '.tips-item.js-tips-item.js-switcher-note';
+    await chrome.scripting.executeScript({
+      target: { tabId: threeCXTabId },
+      func: (selector) => {
+        const noteOption = document.querySelector(selector);
+        if (noteOption) {
+          noteOption.click();
+        } else {
+          throw new Error('Opção de nota não encontrada');
         }
-        noteOption.click();
-
-        // Aguarda o campo de nota aparecer
-        return new Promise((resolve) => {
-          setTimeout(() => {
-            // Encontra o campo de texto da nota
-            const noteField = document.querySelector('.control-contenteditable__area.feed-compose__message');
-            if (!noteField) {
-              resolve({ error: 'Campo de nota não encontrado' });
-              return;
-            }
-
-            // Insere o texto da nota
-            noteField.textContent = note;
-            noteField.dispatchEvent(new Event('input', { bubbles: true }));
-
-            // Encontra e clica no botão de adicionar
-            const addButton = document.querySelector('.js-note-submit.feed-note__button');
-            if (!addButton) {
-              resolve({ error: 'Botão de adicionar não encontrado' });
-              return;
-            }
-
-            // Remove a classe disabled e clica no botão
-            addButton.classList.remove('button-input-disabled');
-            addButton.click();
-
-            // Aguarda a nota ser adicionada
-            setTimeout(() => {
-              resolve({ success: true });
-            }, 500);
-          }, 500); // Aguarda 500ms após clicar na opção de nota
-        });
       },
-      args: [leadId, note]
+      args: [noteOptionSelector]
     });
+
+    // Aguarda o campo de nota aparecer
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Gera o texto da nota
+    const noteText = generateNoteText(noteSettings);
+
+    // Insere o texto da nota
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: threeCXTabId },
+      func: (text) => {
+        const noteField = document.querySelector('.js-note-text');
+        const addButton = document.querySelector('.js-note-add');
+        
+        if (!noteField || !addButton) {
+          throw new Error('Campo de nota ou botão não encontrado');
+        }
+        
+        noteField.value = text;
+        addButton.click();
+        
+        return true;
+      },
+      args: [noteText]
+    });
+
+    // Aguarda a nota ser adicionada
+    await new Promise(resolve => setTimeout(resolve, 500));
 
     return result[0].result;
   } catch (error) {
-    console.error('❌ Erro ao adicionar nota:', error);
-    return { error: error.message };
+    console.error('Erro ao adicionar nota:', error);
+    throw error;
   }
 }
 
 // Função para processar próximo lead
 async function processNextLead() {
-  if (!state.currentLeads || state.currentLeadIndex >= state.currentLeads.length) {
+  if (!state.isRunning || state.isPaused || state.currentLeadIndex >= state.currentLeads.length) {
     console.log('✅ Todos os leads foram processados');
     
     // Aguarda 2 segundos antes de retornar ao funil
@@ -597,8 +614,7 @@ async function processNextLead() {
 
     // Adiciona nota após a chamada
     const now = new Date().toLocaleString('pt-BR');
-    const note = `Chamada realizada em ${now}`;
-    const noteResult = await addNoteToLead(lead.id, note);
+    const noteResult = await addNoteToLead(lead.id, state.noteSettings);
     
     if (noteResult.error) {
       console.error('❌ Erro ao adicionar nota:', noteResult.error);
@@ -729,6 +745,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     state.isPaused = false;
     state.isRunning = true;
     state.pipelineId = request.pipelineId;
+    state.noteSettings = request.noteSettings;
     saveState();
     processNextLead();
     sendResponse({ success: true });
