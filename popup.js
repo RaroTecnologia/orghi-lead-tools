@@ -457,7 +457,12 @@ document.addEventListener('DOMContentLoaded', () => {
         pipelineId: result.pipelineId
       }, (response) => {
         if (response && response.success) {
-          updateState();
+          updateProgress({
+            currentLeads: result.leads,
+            currentLeadIndex: 0,
+            isRunning: true,
+            isPaused: false
+          });
           addLog('✅ Discador iniciado com sucesso');
         } else {
           showError('Erro ao iniciar o discador');
