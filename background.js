@@ -457,6 +457,66 @@ async function returnToPipeline(pipelineId) {
   }
 }
 
+// Função para adicionar nota ao lead
+async function addNoteToLead(leadId, note) {
+  try {
+    const tabs = await chrome.tabs.query({url: "*://*.kommo.com/*"});
+    if (tabs.length === 0) {
+      throw new Error('Nenhuma aba do Kommo encontrada');
+    }
+
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tabs[0].id },
+      func: (leadId, note) => {
+        // Primeiro seleciona a opção "Nota"
+        const noteOption = document.querySelector('.tips-item.js-tips-item.js-switcher-note');
+        if (!noteOption) {
+          return { error: 'Opção de nota não encontrada' };
+        }
+        noteOption.click();
+
+        // Aguarda o campo de nota aparecer
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            // Encontra o campo de texto da nota
+            const noteField = document.querySelector('.control-contenteditable__area.feed-compose__message');
+            if (!noteField) {
+              resolve({ error: 'Campo de nota não encontrado' });
+              return;
+            }
+
+            // Insere o texto da nota
+            noteField.textContent = note;
+            noteField.dispatchEvent(new Event('input', { bubbles: true }));
+
+            // Encontra e clica no botão de adicionar
+            const addButton = document.querySelector('.js-note-submit.feed-note__button');
+            if (!addButton) {
+              resolve({ error: 'Botão de adicionar não encontrado' });
+              return;
+            }
+
+            // Remove a classe disabled e clica no botão
+            addButton.classList.remove('button-input-disabled');
+            addButton.click();
+
+            // Aguarda a nota ser adicionada
+            setTimeout(() => {
+              resolve({ success: true });
+            }, 500);
+          }, 500); // Aguarda 500ms após clicar na opção de nota
+        });
+      },
+      args: [leadId, note]
+    });
+
+    return result[0].result;
+  } catch (error) {
+    console.error('❌ Erro ao adicionar nota:', error);
+    return { error: error.message };
+  }
+}
+
 // Função para processar próximo lead
 async function processNextLead() {
   if (!state.currentLeads || state.currentLeadIndex >= state.currentLeads.length) {
@@ -511,6 +571,17 @@ async function processNextLead() {
           url: `https://${domain}.kommo.com${lead.detailsUrl}`,
           active: false
         });
+
+        // Aguarda a página carregar
+        await new Promise(resolve => {
+          function onTabUpdate(tabId, changeInfo, tab) {
+            if (tabId === tabs[0].id && changeInfo.status === 'complete') {
+              chrome.tabs.onUpdated.removeListener(onTabUpdate);
+              resolve();
+            }
+          }
+          chrome.tabs.onUpdated.addListener(onTabUpdate);
+        });
       }
     }
     
@@ -523,6 +594,17 @@ async function processNextLead() {
     }
 
     console.log('✅ Chamada finalizada com sucesso');
+
+    // Adiciona nota após a chamada
+    const now = new Date().toLocaleString('pt-BR');
+    const note = `Chamada realizada em ${now}`;
+    const noteResult = await addNoteToLead(lead.id, note);
+    
+    if (noteResult.error) {
+      console.error('❌ Erro ao adicionar nota:', noteResult.error);
+    } else {
+      console.log('✅ Nota adicionada com sucesso');
+    }
 
     if (state.isPaused) return;
 
