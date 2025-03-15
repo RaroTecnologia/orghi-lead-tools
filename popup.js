@@ -158,6 +158,14 @@ document.addEventListener('DOMContentLoaded', () => {
       // Formata o número removendo caracteres especiais e espaços
       const formattedPhone = lead.phone.replace(/[^\d+]/g, '');
       
+      // Abre a página de detalhes do lead em uma nova aba
+      if (lead.detailsUrl) {
+        chrome.tabs.create({ 
+          url: `https://raro.kommo.com${lead.detailsUrl}`,
+          active: false // Mantém o foco na aba atual
+        });
+      }
+      
       const response = await new Promise((resolve) => {
         chrome.runtime.sendMessage({ 
           action: 'makeCall',
@@ -265,11 +273,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const nameEl = lead.querySelector('.pipeline_leads__title-text');
                 const phoneEl = lead.querySelector('.pipeline_leads__note');
                 const phone = phoneEl ? phoneEl.textContent.trim().replace(/[^\d+]/g, '') : '';
+                const detailsUrl = nameEl ? nameEl.getAttribute('href') : '';
                 
                 return {
                   id: lead.getAttribute('data-id'),
                   name: nameEl ? nameEl.textContent.trim() : '',
-                  phone: phone
+                  phone: phone,
+                  detailsUrl: detailsUrl
                 };
               })
               .filter(lead => lead.phone);
