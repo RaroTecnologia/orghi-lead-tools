@@ -14,7 +14,8 @@ function is3CXURL(url) {
       chrome.storage.sync.get(['threeCXDomain'], (result) => {
         if (!result.threeCXDomain) {
           console.log('Nenhum domínio 3CX configurado');
-          resolve(false);
+          // Se não tiver domínio configurado, tenta identificar pelo hostname
+          resolve(urlObj.hostname.includes('3cx.cloud') || urlObj.hostname.includes('3cx.com'));
           return;
         }
         
@@ -59,6 +60,7 @@ async function find3CXTab() {
     chrome.tabs.query({}, async (tabs) => {
       console.log('📊 Total de abas encontradas:', tabs.length);
       
+      // Primeiro tenta encontrar pelo domínio configurado
       for (const tab of tabs) {
         const is3CX = await is3CXURL(tab.url);
         
@@ -70,7 +72,26 @@ async function find3CXTab() {
         });
         
         if (is3CX) {
-          console.log('✅ Aba 3CX encontrada:', {
+          console.log('✅ Aba 3CX encontrada pelo domínio:', {
+            url: tab.url,
+            title: tab.title,
+            id: tab.id
+          });
+          
+          threeCXTabId = tab.id;
+          resolve({
+            found: true,
+            tabId: tab.id,
+            url: tab.url
+          });
+          return;
+        }
+      }
+      
+      // Se não encontrou pelo domínio, tenta pelo título
+      for (const tab of tabs) {
+        if (tab.title && tab.title.includes('3CX')) {
+          console.log('✅ Aba 3CX encontrada pelo título:', {
             url: tab.url,
             title: tab.title,
             id: tab.id
@@ -298,17 +319,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       func: () => {
         const statusIndicator = document.querySelector('i[data-qa="status-indicator"]');
         if (!statusIndicator) {
+          console.log('Indicador de status não encontrado');
           return { error: 'Indicador de status não encontrado' };
         }
 
-        const style = getComputedStyle(statusIndicator);
-        const backgroundColor = style.backgroundColor;
+        // Verifica o status usando as classes
+        const isAvailable = statusIndicator.classList.contains('available');
+        const isUnavailable = statusIndicator.classList.contains('unavailable');
+        
+        console.log('Status atual:', {
+          classes: statusIndicator.className,
+          isAvailable,
+          isUnavailable
+        });
 
-        const isAvailable = backgroundColor.includes('var(--status-available)') || 
-                          backgroundColor.includes('rgb(0, 255, 0)') ||
-                          backgroundColor.includes('#00ff00');
-
-        return { available: isAvailable };
+        return { 
+          available: isAvailable,
+          unavailable: isUnavailable,
+          classes: statusIndicator.className
+        };
       }
     }).then(result => {
       if (result[0].result.error) {

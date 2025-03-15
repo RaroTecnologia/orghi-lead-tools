@@ -171,7 +171,13 @@ document.addEventListener('DOMContentLoaded', () => {
             action: 'checkStatus',
             tabId: response.tabId
           }, (result) => {
-            addLog(`🔄 Status do discador: ${result.available ? 'Disponível' : 'Em chamada'}`);
+            if (result.error) {
+              addLog(`❌ Erro ao verificar status: ${result.error}`);
+              setTimeout(checkStatus, 1000);
+              return;
+            }
+
+            addLog(`🔄 Status do discador: ${result.classes}`);
             
             // Se estava indisponível e agora está disponível, ligação terminou
             if (wasUnavailable && result.available) {
