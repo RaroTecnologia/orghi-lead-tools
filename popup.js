@@ -203,8 +203,9 @@ document.addEventListener('DOMContentLoaded', () => {
       addLog(`📱 Ligação finalizada para ${lead.name}`);
       
       // Busca o tempo configurado no storage e agenda próxima ligação
-      chrome.storage.sync.get(['waitTime'], (result) => {
-        const waitSeconds = (result.waitTime || 30) * 1; // Converte para segundos
+      chrome.storage.sync.get(['dialerDelay'], (result) => {
+        const waitSeconds = (result.dialerDelay || 5) * 1; // Usa dialerDelay ao invés de waitTime
+        addLog(`⏳ Configurado para aguardar ${waitSeconds} segundos`);
         currentLeadIndex = index + 1;
         startTimer(waitSeconds);
       });
