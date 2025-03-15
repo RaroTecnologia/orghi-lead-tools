@@ -149,6 +149,12 @@
   function filterWhatsappLines(channels) {
     debugLog(`Iniciando filterWhatsappLines com canais:`, channels);
 
+    // Verifica se estamos na página de detalhes do lead
+    if (!window.location.pathname.includes('/leads/detail/')) {
+      debugLog('Não estamos na página de detalhes do lead, ignorando filtro');
+      return;
+    }
+
     // Função que aplica o filtro em um elemento
     function applyFilter(element) {
       debugLog('Aplicando filtro em elemento:', element);
