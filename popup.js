@@ -382,6 +382,39 @@ document.addEventListener('DOMContentLoaded', () => {
     chrome.runtime.openOptionsPage();
   });
 
+  // Adiciona listener para salvar o status selecionado
+  leadStatus.addEventListener('change', () => {
+    const selectedOption = leadStatus.options[leadStatus.selectedIndex];
+    if (selectedOption) {
+      // Busca o nome do status nos status salvos
+      chrome.storage.sync.get(['leadStatuses', 'motivos'], (result) => {
+        const statuses = result.leadStatuses || [];
+        const motivos = result.motivos || [];
+        const selectedStatus = statuses.find(s => s.id === selectedOption.value);
+        
+        if (selectedStatus) {
+          // Procura nas tentativas de todos os motivos qual status corresponde ao selecionado
+          let statusConfigurado = selectedStatus.name;
+          
+          for (const motivo of motivos) {
+            if (motivo.tentativas) {
+              const tentativa = motivo.tentativas.find(t => 
+                t.status.toLowerCase().includes(selectedStatus.name.toLowerCase()) ||
+                selectedStatus.name.toLowerCase().includes(t.status.toLowerCase())
+              );
+              if (tentativa) {
+                statusConfigurado = tentativa.status;
+                break;
+              }
+            }
+          }
+          
+          chrome.storage.sync.set({ currentStatus: statusConfigurado });
+        }
+      });
+    }
+  });
+
   startDialerButton.addEventListener('click', async () => {
     try {
       const statusId = leadStatus.value;
@@ -464,13 +497,89 @@ document.addEventListener('DOMContentLoaded', () => {
     customNoteContainer.style.display = 'none';
   }
 
+  // Carrega os motivos configurados
+  function loadMotivos() {
+    chrome.storage.sync.get(['motivos'], (result) => {
+      const motivos = result.motivos || [];
+      
+      // Limpa o select
+      noteTypeSelect.innerHTML = '<option value="">Selecione o motivo</option>';
+      
+      // Adiciona os motivos configurados
+      motivos.forEach(motivo => {
+        const option = document.createElement('option');
+        option.value = motivo.nome;
+        option.textContent = motivo.nome;
+        noteTypeSelect.appendChild(option);
+      });
+    });
+  }
+
   // Event listeners da seção de notas
   noteTypeSelect.addEventListener('change', () => {
-    const isCustom = noteTypeSelect.value === 'summary';
-    customNoteContainer.style.display = isCustom ? 'block' : 'none';
-    if (isCustom) {
-      customNoteInput.focus();
+    const selectedValue = noteTypeSelect.value;
+    
+    if (!selectedValue) {
+      customNoteContainer.style.display = 'none';
+      customNoteInput.value = '';
+      return;
     }
+
+    chrome.storage.sync.get(['motivos', 'currentStatus'], (result) => {
+      const motivos = result.motivos || [];
+      const selectedMotivo = motivos.find(m => m.nome === selectedValue);
+      const currentStatus = result.currentStatus;
+      
+      if (selectedMotivo && selectedMotivo.tentativas && selectedMotivo.tentativas.length > 0) {
+        customNoteContainer.style.display = 'block';
+        
+        // Encontra a tentativa correta baseada no status atual
+        let tentativa;
+        const tentativaAtual = selectedMotivo.tentativas.find(t => t.status === currentStatus);
+        
+        if (tentativaAtual) {
+          const indexAtual = selectedMotivo.tentativas.indexOf(tentativaAtual);
+          // Se encontrou o status atual nas tentativas, usa a próxima tentativa
+          tentativa = selectedMotivo.tentativas[indexAtual + 1] || tentativaAtual;
+        } else {
+          // Se não encontrou o status atual, procura por uma tentativa que leve ao status atual
+          const tentativaParaStatusAtual = selectedMotivo.tentativas.find((t, index) => 
+            index < selectedMotivo.tentativas.length - 1 && 
+            selectedMotivo.tentativas[index + 1].status === currentStatus
+          );
+          
+          if (tentativaParaStatusAtual) {
+            // Se encontrou, usa a próxima tentativa após o status atual
+            const indexAtual = selectedMotivo.tentativas.indexOf(tentativaParaStatusAtual);
+            tentativa = selectedMotivo.tentativas[indexAtual + 2] || selectedMotivo.tentativas[indexAtual + 1];
+          } else {
+            // Se não encontrou nenhuma relação, começa do início
+            tentativa = selectedMotivo.tentativas[0];
+          }
+        }
+        
+        // Mostra a nota e o próximo status
+        customNoteInput.value = tentativa.nota;
+        customNoteInput.readOnly = true;
+        
+        // Adiciona informação visual sobre o próximo status
+        const tentativaInfo = document.createElement('div');
+        tentativaInfo.className = 'tentativa-info';
+        tentativaInfo.style.marginTop = '8px';
+        tentativaInfo.style.fontSize = '12px';
+        tentativaInfo.style.color = 'var(--text-secondary)';
+        tentativaInfo.textContent = `Status atual: ${currentStatus || 'Não identificado'} → Próximo status: ${tentativa.status}`;
+        
+        // Remove info anterior se existir
+        const oldInfo = customNoteContainer.querySelector('.tentativa-info');
+        if (oldInfo) oldInfo.remove();
+        
+        customNoteContainer.appendChild(tentativaInfo);
+      } else {
+        customNoteContainer.style.display = 'none';
+        customNoteInput.value = '';
+      }
+    });
   });
 
   // Modifica o listener do botão de encerrar ligação
@@ -496,93 +605,216 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Função para mover o card para o próximo status
+  async function moveToNextStatus(tab, targetStatusName) {
+    try {
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: async (targetStatusName) => {
+                try {
+                    // Aguarda o botão de status aparecer e clica nele
+                    const statusWrapper = document.querySelector('.pipeline-select-wrapper');
+                    if (!statusWrapper) {
+                        console.error('Wrapper de status não encontrado');
+                        return { error: 'Wrapper de status não encontrado' };
+                    }
+
+                    // Verifica se já está aberto, se não estiver, clica para abrir
+                    if (!statusWrapper.classList.contains('expanded')) {
+                        statusWrapper.click();
+                    }
+                    
+                    // Aguarda a lista de status aparecer
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    
+                    // Procura pelo status desejado em todos os pipelines
+                    const statusItems = document.querySelectorAll('.pipeline-select__dropdown__item');
+                    let targetStatusFound = false;
+                    
+                    for (const item of statusItems) {
+                        const statusText = item.querySelector('.pipeline-select__item-text')?.textContent?.trim();
+                        console.log('Status encontrado:', statusText);
+                        
+                        if (statusText === targetStatusName) {
+                            // Encontra o input dentro do item e clica nele
+                            const input = item.querySelector('input[type="radio"]');
+                            if (input) {
+                                input.click();
+                                targetStatusFound = true;
+                                console.log('Status selecionado:', targetStatusName);
+                                
+                                // Aguarda o botão de salvar aparecer
+                                await new Promise(resolve => setTimeout(resolve, 500));
+                                
+                                // Clica no botão de salvar
+                                const saveButton = document.querySelector('.button-input.button-input_blue');
+                                if (saveButton) {
+                                    saveButton.click();
+                                    console.log('Botão salvar clicado');
+                                    return { success: true, message: 'Status alterado com sucesso' };
+                                } else {
+                                    console.error('Botão salvar não encontrado');
+                                    return { error: 'Botão salvar não encontrado' };
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (!targetStatusFound) {
+                        console.error('Status alvo não encontrado');
+                        return { error: 'Status não encontrado na lista' };
+                    }
+                } catch (error) {
+                    console.error('Erro ao mudar status:', error);
+                    return { error: error.message };
+                }
+            },
+            args: [targetStatusName]
+        });
+
+        return result[0].result;
+    } catch (error) {
+        console.error('Erro ao executar script:', error);
+        return { error: error.message };
+    }
+  }
+
   // Ajusta o listener do botão de salvar nota
   saveNoteButton.addEventListener('click', async () => {
     try {
-      const type = noteTypeSelect.value;
-      
-      if (!type) {
-        throw new Error('Por favor, selecione um motivo para a ligação');
-      }
+        const type = noteTypeSelect.value;
+        
+        if (!type) {
+            throw new Error('Por favor, selecione um motivo para a ligação');
+        }
 
-      const note = type === 'summary' ? customNoteInput.value.trim() : noteTemplates[type]();
-      
-      if (!note) {
-        throw new Error('Por favor, digite um resumo da conversa');
-      }
-
-      const tab = await getKommoTab();
-      
-      // Executa o script para adicionar a nota no Kommo
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: (noteText) => {
-          return new Promise((resolve, reject) => {
+        chrome.storage.sync.get(['motivos', 'currentStatus'], async (result) => {
             try {
-              // Seleciona o tipo "Nota" no seletor
-              const noteSwitcher = document.querySelector('.js-switcher-note');
-              if (!noteSwitcher) {
-                throw new Error('Seletor de tipo de nota não encontrado');
-              }
-              noteSwitcher.click();
-
-              // Aguarda o campo de nota aparecer
-              setTimeout(() => {
-                // Encontra o campo de texto da nota
-                const noteField = document.querySelector('.feed-compose__message');
-                if (!noteField) {
-                  throw new Error('Campo de nota não encontrado');
+                const motivos = result.motivos || [];
+                const selectedMotivo = motivos.find(m => m.nome === type);
+                const currentStatus = result.currentStatus;
+                
+                if (!selectedMotivo || !selectedMotivo.tentativas || selectedMotivo.tentativas.length === 0) {
+                    throw new Error('Motivo não encontrado ou sem tentativas configuradas');
                 }
 
-                // Limpa o campo e insere o texto da nota
-                noteField.textContent = noteText;
-
-                // Dispara evento de input para ativar o botão de adicionar
-                noteField.dispatchEvent(new Event('input', { bubbles: true }));
-
-                // Encontra e clica no botão de adicionar
-                const addButton = document.querySelector('.js-note-submit');
-                if (!addButton) {
-                  throw new Error('Botão de adicionar não encontrado');
+                // Encontra a próxima tentativa baseada no status atual
+                let tentativa;
+                const tentativaAtual = selectedMotivo.tentativas.find(t => t.status === currentStatus);
+                
+                if (tentativaAtual) {
+                  const indexAtual = selectedMotivo.tentativas.indexOf(tentativaAtual);
+                  tentativa = selectedMotivo.tentativas[indexAtual + 1] || tentativaAtual;
+                } else {
+                  tentativa = selectedMotivo.tentativas[0];
                 }
 
-                // Clica no botão
-                addButton.click();
+                addLog(`📝 Salvando nota para motivo: ${selectedMotivo.nome} (${tentativa.status})`, 'info');
+                
+                const note = tentativa.nota;
+                const targetStatus = tentativa.status;
+                
+                const tab = await getKommoTab();
+                
+                // Executa o script para adicionar a nota no Kommo
+                const noteResult = await chrome.scripting.executeScript({
+                    target: { tabId: tab.id },
+                    func: async function(noteText) {
+                        // Função para aguardar um elemento aparecer
+                        function waitForElement(selector, maxAttempts = 10) {
+                            return new Promise((resolve) => {
+                                let attempts = 0;
+                                const interval = setInterval(() => {
+                                    attempts++;
+                                    const element = document.querySelector(selector);
+                                    if (element || attempts >= maxAttempts) {
+                                        clearInterval(interval);
+                                        resolve(element);
+                                    }
+                                }, 500);
+                            });
+                        }
 
-                // Aguarda um pouco para garantir que a nota foi salva
-                setTimeout(() => resolve(true), 2000);
-              }, 500);
+                        try {
+                            // Seleciona o tipo "Nota" no seletor
+                            const noteSwitcher = await waitForElement('.js-switcher-note');
+                            if (!noteSwitcher) {
+                                throw new Error('Seletor de tipo de nota não encontrado');
+                            }
+                            noteSwitcher.click();
+
+                            // Aguarda o campo de nota aparecer
+                            const noteField = await waitForElement('.feed-compose__message');
+                            if (!noteField) {
+                                throw new Error('Campo de nota não encontrado');
+                            }
+
+                            // Limpa o campo e insere o texto da nota
+                            noteField.textContent = noteText;
+
+                            // Dispara evento de input para ativar o botão de adicionar
+                            noteField.dispatchEvent(new Event('input', { bubbles: true }));
+
+                            // Aguarda o botão de adicionar aparecer
+                            const addButton = await waitForElement('.js-note-submit');
+                            if (!addButton) {
+                                throw new Error('Botão de adicionar não encontrado');
+                            }
+
+                            // Clica no botão
+                            addButton.click();
+
+                            // Aguarda a nota ser salva
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                            
+                            return true;
+                        } catch (error) {
+                            return { error: error.message };
+                        }
+                    },
+                    args: [note]
+                });
+
+                if (noteResult[0].result.error) {
+                    throw new Error(`Erro ao salvar nota: ${noteResult[0].result.error}`);
+                }
+
+                addLog('✅ Nota salva com sucesso', 'success');
+
+                // Move para o próximo status
+                if (targetStatus) {
+                    addLog(`🔄 Movendo para status: ${targetStatus}`, 'info');
+                    const moveResult = await moveToNextStatus(tab, targetStatus);
+                    if (moveResult.error) {
+                        throw new Error(`Erro ao mover para próximo status: ${moveResult.error}`);
+                    }
+                    addLog('✅ Status alterado com sucesso', 'success');
+                }
+
+                // Esconde a seção de notas
+                hideNoteSection();
+
+                // Aguarda um momento antes de prosseguir
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Notifica o background que a nota foi salva
+                const noteSavedResponse = await new Promise(resolve => {
+                    chrome.runtime.sendMessage({
+                        action: 'noteSaved'
+                    }, resolve);
+                });
+
+                if (!noteSavedResponse || !noteSavedResponse.success) {
+                    throw new Error('Erro ao confirmar salvamento da nota');
+                }
+
+                addLog('📞 Iniciando próxima ligação...', 'info');
             } catch (error) {
-              reject(error);
+                showError(error.message);
             }
-          });
-        },
-        args: [note]
-      });
-
-      addLog('✅ Nota salva com sucesso', 'success');
-      
-      // Esconde a seção de notas
-      hideNoteSection();
-
-      // Aguarda um momento antes de prosseguir
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      // Notifica o background que a nota foi salva
-      const noteSavedResponse = await new Promise(resolve => {
-        chrome.runtime.sendMessage({
-          action: 'noteSaved'
-        }, resolve);
-      });
-
-      if (!noteSavedResponse || !noteSavedResponse.success) {
-        throw new Error('Erro ao confirmar salvamento da nota');
-      }
-
-      addLog('📞 Iniciando próxima ligação...', 'info');
-
+        });
     } catch (error) {
-      showError(error.message);
+        showError(error.message);
     }
   });
 
@@ -653,4 +885,7 @@ document.addEventListener('DOMContentLoaded', () => {
       updateProgress(state);
     });
   });
+
+  // Carrega os motivos ao iniciar
+  loadMotivos();
 }); 

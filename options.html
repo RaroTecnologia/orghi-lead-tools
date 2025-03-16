@@ -264,6 +264,255 @@
     input[type="checkbox"]:checked + .toggle .toggle-thumb {
       transform: translateX(20px);
     }
+
+    body {
+      width: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      border-radius: 8px;
+      background-color: #f8f9fa;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    h2 {
+      color: #2c3e50;
+      margin-top: 0;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #e9ecef;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #495057;
+      font-weight: 500;
+    }
+
+    input[type="text"], 
+    select, 
+    textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ced4da;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    textarea {
+      min-height: 100px;
+      resize: vertical;
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background-color 0.2s;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    button.secondary {
+      background-color: #6c757d;
+    }
+
+    button.secondary:hover {
+      background-color: #545b62;
+    }
+
+    button.danger {
+      background-color: #dc3545;
+    }
+
+    button.danger:hover {
+      background-color: #c82333;
+    }
+
+    .motivos-list {
+      margin-top: 20px;
+    }
+
+    .motivo-item {
+      background: #fff;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s ease;
+    }
+
+    .motivo-item:hover {
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .motivo-content {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+    }
+
+    .motivo-content > div:first-child {
+      flex: 1;
+    }
+
+    .motivo-nome {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 1.1em;
+      margin-bottom: 4px;
+    }
+
+    .motivo-status {
+      color: var(--text-secondary);
+      font-size: 0.9em;
+      margin-bottom: 8px;
+    }
+
+    .motivo-nota {
+      color: var(--text-secondary);
+      font-size: 0.9em;
+      white-space: pre-wrap;
+      line-height: 1.4;
+      background: var(--bg-secondary);
+      padding: 8px;
+      border-radius: 4px;
+      margin-top: 8px;
+    }
+
+    .motivo-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .edit-form {
+      display: none;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+      animation: slideDown 0.3s ease;
+    }
+
+    .edit-form.active {
+      display: block;
+    }
+
+    @keyframes slideDown {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .motivo-form {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    .motivo-form .form-group:last-child {
+      grid-column: 1 / -1;
+    }
+
+    .motivo-form textarea {
+      min-height: 80px;
+      resize: vertical;
+    }
+
+    .icon-button {
+      background: none;
+      border: none;
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 4px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--primary-color);
+      transition: all 0.2s ease;
+    }
+
+    .icon-button:hover {
+      background-color: rgba(124, 58, 237, 0.1);
+      transform: scale(1.05);
+    }
+
+    .icon-button.danger {
+      color: var(--error-color);
+    }
+
+    .icon-button.danger:hover {
+      background-color: transparent;
+      color: #ef4444;
+      transform: scale(1.1);
+    }
+
+    .icon-button svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .motivo-actions button.save-edit {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .motivo-actions button.save-edit svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .tentativa-form {
+      background: var(--bg-secondary);
+      padding: 16px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 16px;
+    }
+
+    .tentativa-form h4 {
+      color: var(--text-primary);
+      margin-bottom: 12px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    #tentativas-container {
+      margin-top: 16px;
+    }
+
+    .tentativa-form .form-group {
+      margin-bottom: 12px;
+    }
+
+    .tentativa-form:last-child {
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
@@ -361,6 +610,51 @@
         </button>
       </div>
       <div class="debug-info" id="debugInfo"></div>
+    </section>
+
+    <section class="section">
+      <h2>Gerenciamento de Motivos e Status</h2>
+      
+      <div class="form-group">
+        <label>Adicionar Novo Motivo:</label>
+        <div class="motivo-form">
+          <div class="form-group">
+            <input type="text" id="motivoNome" placeholder="Nome do motivo (ex: Não Atendeu)" class="form-input">
+          </div>
+          <div id="tentativas-container">
+            <div class="tentativa-form">
+              <h4>1ª Tentativa</h4>
+              <div class="form-group">
+                <input type="text" class="motivo-status" placeholder="Status após primeira tentativa (ex: Segunda Ligação)" class="form-input">
+              </div>
+              <div class="form-group">
+                <textarea class="motivo-nota" placeholder="Nota para primeira tentativa" class="form-input" rows="2"></textarea>
+              </div>
+            </div>
+            <div class="tentativa-form">
+              <h4>2ª Tentativa (Opcional)</h4>
+              <div class="form-group">
+                <input type="text" class="motivo-status" placeholder="Status final (ex: Lead Frio)" class="form-input">
+              </div>
+              <div class="form-group">
+                <textarea class="motivo-nota" placeholder="Nota para tentativa final" class="form-input" rows="2"></textarea>
+              </div>
+            </div>
+            <small style="margin-top: 8px; display: block;">A segunda tentativa é opcional. Se não preenchida, o motivo terá apenas uma tentativa.</small>
+          </div>
+        </div>
+        <button class="primary" id="addMotivo" style="margin-top: 8px;">
+          <svg class="svg-icon" style="width: 16px; height: 16px;" viewBox="0 0 24 24">
+            <path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+          </svg>
+          Adicionar Motivo
+        </button>
+      </div>
+
+      <div class="motivos-list" style="margin-top: 20px;">
+        <h3>Motivos Configurados:</h3>
+        <div id="motivosList" style="margin-top: 12px;"></div>
+      </div>
     </section>
 
     <button id="saveAll" class="primary" style="width: 100%;">

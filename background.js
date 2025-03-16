@@ -1,6 +1,9 @@
 // Variável para armazenar o ID da aba do 3CX
 let threeCXTabId = null;
 
+// Variável para armazenar o ID da janela do popup
+let popupWindowId = null;
+
 // Estado do discador
 let state = {
   currentLeads: null,
@@ -526,9 +529,77 @@ async function processNextLead() {
   }
 }
 
-// Listener para mensagens
+// Função para abrir ou focar no popup existente
+async function openOrFocusPopup() {
+  if (popupWindowId !== null) {
+    // Verifica se a janela ainda existe
+    try {
+      const window = await chrome.windows.get(popupWindowId);
+      if (window) {
+        // Foca na janela existente
+        await chrome.windows.update(popupWindowId, { focused: true });
+        return;
+      }
+    } catch (error) {
+      // Janela não existe mais, reseta o ID
+      popupWindowId = null;
+    }
+  }
+
+  // Cria uma nova janela popup
+  const popup = await chrome.windows.create({
+    url: 'popup.html',
+    type: 'popup',
+    width: 400,
+    height: 600
+  });
+  
+  popupWindowId = popup.id;
+}
+
+// Listener para quando uma janela é fechada
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === popupWindowId) {
+    popupWindowId = null;
+  }
+});
+
+// Listener para quando o ícone da extensão é clicado
+chrome.action.onClicked.addListener(async () => {
+  if (popupWindowId !== null) {
+    try {
+      // Verifica se a janela ainda existe
+      const window = await chrome.windows.get(popupWindowId);
+      if (window) {
+        // Se existe, fecha ela
+        await chrome.windows.remove(popupWindowId);
+        popupWindowId = null;
+      }
+    } catch (error) {
+      // Se deu erro, provavelmente a janela não existe mais
+      console.error('Erro ao verificar/fechar popup:', error);
+      popupWindowId = null;
+    }
+  } else {
+    // Se não existe popup aberto, abre um novo
+    const popup = await chrome.windows.create({
+      url: 'popup.html',
+      type: 'popup',
+      width: 400,
+      height: 600
+    });
+    popupWindowId = popup.id;
+  }
+});
+
+// Listener unificado para mensagens
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   console.log('Mensagem recebida:', request);
+  
+  if (request.action === 'openPopup') {
+    openOrFocusPopup();
+    return true;
+  }
   
   if (request.action === 'find3CXTab') {
     find3CXTab().then(sendResponse);
@@ -666,4 +737,147 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 // Inicialização
-loadState(); 
+loadState();
+
+async function moveToNextStatus(statusName) {
+    try {
+        const tab = await getKommoTab();
+        addLog(`🔄 Tentando mover para status: ${statusName}`, 'info');
+        
+        const result = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            func: async function(targetStatusName) {
+                // Função para aguardar um elemento aparecer
+                function waitForElement(selector, maxAttempts = 10) {
+                    return new Promise((resolve) => {
+                        let attempts = 0;
+                        const interval = setInterval(() => {
+                            attempts++;
+                            const element = document.querySelector(selector);
+                            if (element || attempts >= maxAttempts) {
+                                clearInterval(interval);
+                                resolve(element);
+                            }
+                        }, 500);
+                    });
+                }
+
+                try {
+                    // Aguarda o container do seletor de status aparecer
+                    const statusContainer = await waitForElement('.pipeline-select-wrapper');
+                    if (!statusContainer) {
+                        throw new Error('Container de status não encontrado');
+                    }
+
+                    // Verifica se o dropdown já está aberto
+                    const isDropdownOpen = statusContainer.classList.contains('expanded');
+                    if (!isDropdownOpen) {
+                        // Clica no container para abrir o dropdown
+                        statusContainer.click();
+                        console.log('Container de status clicado');
+                    }
+
+                    // Aguarda a lista de status aparecer
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    // Encontra todos os itens de status
+                    const statusItems = document.querySelectorAll('.pipeline-select__dropdown__item');
+                    console.log('Status encontrados:', statusItems.length);
+                    
+                    let targetStatus = null;
+                    let statusNames = [];
+
+                    for (const item of statusItems) {
+                        const statusText = item.querySelector('.pipeline-select__item-text')?.textContent.trim();
+                        if (statusText) {
+                            statusNames.push(statusText);
+                            if (statusText === targetStatusName) {
+                                targetStatus = item;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (!targetStatus) {
+                        console.log('Status disponíveis:', statusNames.join(', '));
+                        throw new Error(`Status "${targetStatusName}" não encontrado. Status disponíveis: ${statusNames.join(', ')}`);
+                    }
+
+                    // Encontra e clica no input de rádio dentro do item de status
+                    const radioInput = targetStatus.querySelector('input[type="radio"]');
+                    if (!radioInput) {
+                        throw new Error('Input de seleção não encontrado');
+                    }
+                    
+                    // Clica no input e no label para garantir a seleção
+                    radioInput.click();
+                    targetStatus.querySelector('label')?.click();
+                    console.log('Status selecionado:', targetStatusName);
+
+                    // Aguarda a mudança ser aplicada
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+
+                    // Tenta diferentes seletores para o botão salvar
+                    const saveButtonSelectors = [
+                        '#save_and_close_contacts_link',
+                        '.card-top-save-button',
+                        'button.button-input_blue.card-top-save-button',
+                        'button.js-button-with-loader.card-top-save-button'
+                    ];
+
+                    let saveButton = null;
+                    for (const selector of saveButtonSelectors) {
+                        saveButton = document.querySelector(selector);
+                        if (saveButton && saveButton.offsetParent !== null) {
+                            console.log('Botão salvar encontrado com seletor:', selector);
+                            break;
+                        }
+                    }
+
+                    if (!saveButton || saveButton.offsetParent === null) {
+                        throw new Error('Botão de salvar não encontrado ou não está visível');
+                    }
+
+                    // Tenta diferentes métodos para clicar no botão
+                    try {
+                        // Método 1: Click direto
+                        saveButton.click();
+                        console.log('Click direto no botão salvar');
+                    } catch (e) {
+                        try {
+                            // Método 2: Dispatch de evento
+                            saveButton.dispatchEvent(new MouseEvent('click', {
+                                bubbles: true,
+                                cancelable: true,
+                                view: window
+                            }));
+                            console.log('Evento de click disparado no botão salvar');
+                        } catch (e2) {
+                            throw new Error('Não foi possível clicar no botão salvar: ' + e2.message);
+                        }
+                    }
+
+                    // Aguarda o salvamento ser concluído
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    
+                    return { success: true, message: `Status alterado para ${targetStatusName} e salvo` };
+                } catch (error) {
+                    console.error('Erro ao mudar status:', error);
+                    return { error: error.message };
+                }
+            },
+            args: [statusName]
+        });
+
+        const scriptResult = result[0].result;
+        if (scriptResult.error) {
+            throw new Error(scriptResult.error);
+        }
+
+        addLog(`✅ Status alterado e salvo com sucesso para: ${statusName}`, 'success');
+        return true;
+    } catch (error) {
+        addLog(`❌ Erro ao mudar status: ${error.message}`, 'error');
+        throw error;
+    }
+} 

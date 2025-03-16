@@ -35,6 +35,32 @@
     });
   }
 
+  // Função para debug com verificação de disponibilidade do chrome.runtime
+  function sendMessageSafely(message) {
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      try {
+        chrome.runtime.sendMessage(message);
+      } catch (error) {
+        console.error('[Orghi Lead Tools] Erro ao enviar mensagem:', error);
+      }
+    } else {
+      console.warn('[Orghi Lead Tools] chrome.runtime não está disponível');
+    }
+  }
+
+  // Função para salvar no storage com verificação
+  function saveToStorageSafely(data) {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+      try {
+        chrome.storage.sync.set(data);
+      } catch (error) {
+        console.error('[Orghi Lead Tools] Erro ao salvar no storage:', error);
+      }
+    } else {
+      console.warn('[Orghi Lead Tools] chrome.storage não está disponível');
+    }
+  }
+
   // Função para observar mudanças na página e detectar quando os status são carregados
   function observeStatusChanges() {
     // Se não estiver na página correta, não faz nada
@@ -59,11 +85,9 @@
 
         debugLog('Status encontrados:', statuses);
 
-        // Salva no storage
-        chrome.storage.sync.set({ leadStatuses: statuses });
-
-        // Envia para o popup
-        chrome.runtime.sendMessage({
+        // Usa as funções seguras
+        saveToStorageSafely({ leadStatuses: statuses });
+        sendMessageSafely({
           type: 'leadStatuses',
           statuses: statuses
         });
@@ -291,29 +315,160 @@
   debugLog('Content script carregado!');
   observeStatusChanges();
 
-  // Listener para mensagens do popup
-  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    debugLog('Mensagem recebida:', request);
-    
-    // Responde ao ping
-    if (request.action === 'ping') {
-      sendResponse({ status: 'ok' });
-      return;
-    }
-    
-    // Busca leads
-    if (request.action === 'getLeads') {
-      getLeadsFromStatus(request.status, request.count)
-        .then(sendResponse);
-      return true; // Mantém a conexão aberta para resposta assíncrona
+  // Função para gerenciar tentativas de ligação
+  async function handleCallAttempt(motivoNome) {
+    // Busca o motivo e suas tentativas
+    const result = await new Promise(resolve => {
+      chrome.storage.sync.get(['motivos', 'lastAttempts'], resolve);
+    });
+
+    const motivo = result.motivos?.find(m => m.nome === motivoNome);
+    if (!motivo || !motivo.tentativas?.length) {
+      debugLog('Motivo não encontrado ou sem tentativas configuradas');
+      return null;
     }
 
-    // Atualiza linha do WhatsApp
-    if (request.action === 'updateWhatsappLine') {
-      debugLog(`Atualizando canais para:`, request.channels);
-      filterWhatsappLines(request.channels);
-      sendResponse({ success: true });
+    // Inicializa ou recupera o contador de tentativas para este lead
+    const leadId = window.location.pathname.split('/').pop();
+    const lastAttempts = result.lastAttempts || {};
+    const currentAttempt = (lastAttempts[leadId] || 0) + 1;
+
+    // Se o motivo tem apenas uma tentativa, sempre retorna ela
+    if (motivo.tentativas.length === 1) {
+      debugLog('Motivo tem apenas uma tentativa, retornando ela');
+      return motivo.tentativas[0];
+    }
+
+    // Se já passou da última tentativa
+    if (currentAttempt > motivo.tentativas.length) {
+      debugLog('Todas as tentativas foram esgotadas');
+      return null;
+    }
+
+    // Atualiza o contador de tentativas
+    lastAttempts[leadId] = currentAttempt;
+    await new Promise(resolve => {
+      chrome.storage.sync.set({ lastAttempts }, resolve);
+    });
+
+    // Retorna a configuração da tentativa atual
+    return motivo.tentativas[currentAttempt - 1];
+  }
+
+  // Atualiza o listener de mensagens para usar a nova função
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    try {
+      chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+        debugLog('Mensagem recebida:', request);
+        
+        // Responde ao ping
+        if (request.action === 'ping') {
+          sendResponse({ status: 'ok' });
+          return;
+        }
+        
+        // Busca leads
+        if (request.action === 'getLeads') {
+          getLeadsFromStatus(request.status, request.count)
+            .then(sendResponse);
+          return true;
+        }
+
+        // Atualiza linha do WhatsApp
+        if (request.action === 'updateWhatsappLine') {
+          debugLog(`Atualizando canais para:`, request.channels);
+          filterWhatsappLines(request.channels);
+          sendResponse({ success: true });
+          return;
+        }
+
+        // Gerencia tentativa de ligação
+        if (request.action === 'handleCallAttempt') {
+          handleCallAttempt(request.motivoNome)
+            .then(attempt => {
+              if (attempt) {
+                sendResponse({
+                  success: true,
+                  status: attempt.status,
+                  nota: attempt.nota
+                });
+              } else {
+                sendResponse({
+                  success: false,
+                  error: 'Todas as tentativas foram esgotadas'
+                });
+              }
+            });
+          return true;
+        }
+      });
+    } catch (error) {
+      console.error('[Orghi Lead Tools] Erro ao configurar listener de mensagens:', error);
+    }
+  }
+
+  // Função para adicionar o botão do discador
+  function addDialerButton() {
+    // Verifica se está na página do pipeline
+    if (!window.location.pathname.includes('/leads/pipeline/')) {
       return;
     }
+
+    // Procura o container de ações
+    const actionsContainer = document.querySelector('.list__top__actions');
+    if (!actionsContainer) {
+      return;
+    }
+
+    // Procura o botão "Novo lead" para referência
+    const newLeadButton = actionsContainer.querySelector('.button-input_add-lead');
+    if (!newLeadButton) {
+      return;
+    }
+
+    // Verifica se o botão já existe para evitar duplicatas
+    if (actionsContainer.querySelector('#orghi-dialer-button')) {
+      return;
+    }
+
+    // Cria o botão do discador
+    const dialerButton = document.createElement('a');
+    dialerButton.id = 'orghi-dialer-button'; // ID único para verificação
+    dialerButton.className = 'button-input button-input_add button-input_blue';
+    dialerButton.style.marginRight = '8px';
+    dialerButton.innerHTML = `
+      <svg class="svg-icon" style="width: 12px; height: 12px;" viewBox="0 0 24 24">
+        <path fill="currentColor" d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56-.35-.12-.74-.03-1.01.24l-1.57 1.97c-2.83-1.35-5.48-3.9-6.89-6.83l1.95-1.66c.27-.28.35-.67.24-1.02-.37-1.11-.56-2.3-.56-3.53 0-.54-.45-.99-.99-.99H4.19C3.65 3 3 3.24 3 3.99 3 13.28 10.73 21 20.01 21c.71 0 .99-.63.99-1.18v-3.45c0-.54-.45-.99-.99-.99z"/>
+      </svg>
+      <span class="button-input-inner__text">Discador</span>
+    `;
+
+    // Adiciona o evento de clique
+    dialerButton.addEventListener('click', () => {
+      chrome.runtime.sendMessage({
+        action: 'openPopup'
+      });
+    });
+
+    // Insere o botão antes do "Novo lead"
+    newLeadButton.parentNode.insertBefore(dialerButton, newLeadButton);
+  }
+
+  // Observa mudanças específicas na DOM para adicionar o botão quando necessário
+  const observer = new MutationObserver((mutations) => {
+    // Verifica se já existe o botão
+    if (!document.querySelector('#orghi-dialer-button')) {
+      addDialerButton();
+    }
   });
+
+  // Inicia a observação apenas no container principal
+  const mainContainer = document.querySelector('#work_area') || document.body;
+  observer.observe(mainContainer, {
+    childList: true,
+    subtree: true
+  });
+
+  // Tenta adicionar o botão imediatamente
+  addDialerButton();
 })(); 
