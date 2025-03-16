@@ -16,6 +16,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const motivoNotaInput = document.getElementById('motivoNota');
     const addMotivoButton = document.getElementById('addMotivo');
     const motivosList = document.getElementById('motivosList');
+    const exportConfigButton = document.getElementById('exportConfig');
+    const importConfigButton = document.getElementById('importConfig');
+    const importFileInput = document.getElementById('importFile');
 
     // Função para criar um novo campo de canal
     function createChannelField(value = '') {
@@ -479,4 +482,88 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Adiciona a função removeMotivo ao escopo global para o onclick funcionar
     window.removeMotivo = removeMotivo;
+
+    // Função para exportar configurações
+    function exportConfigurations() {
+        chrome.storage.sync.get(null, (result) => {
+            // Converte as configurações para JSON
+            const configJson = JSON.stringify(result, null, 2);
+            
+            // Cria um blob com o JSON
+            const blob = new Blob([configJson], { type: 'application/json' });
+            
+            // Cria uma URL para o blob
+            const url = URL.createObjectURL(blob);
+            
+            // Cria um elemento de link para download
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `orghi-config-${new Date().toISOString().split('T')[0]}.json`;
+            
+            // Adiciona o link ao documento, clica nele e remove
+            document.body.appendChild(a);
+            a.click();
+            
+            // Limpa após o download
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            showStatusMessage('Configurações exportadas com sucesso!');
+        });
+    }
+    
+    // Função para importar configurações
+    function importConfigurations(file) {
+        const reader = new FileReader();
+        
+        reader.onload = (event) => {
+            try {
+                // Tenta fazer o parse do JSON
+                const config = JSON.parse(event.target.result);
+                
+                // Verifica se o arquivo contém configurações válidas
+                if (!config || typeof config !== 'object') {
+                    throw new Error('Arquivo de configuração inválido');
+                }
+                
+                // Salva as configurações no storage
+                chrome.storage.sync.set(config, () => {
+                    if (chrome.runtime.lastError) {
+                        showStatusMessage('Erro ao importar: ' + chrome.runtime.lastError.message, true);
+                        return;
+                    }
+                    
+                    // Recarrega a página para mostrar as novas configurações
+                    showStatusMessage('Configurações importadas com sucesso! Recarregando...');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                });
+            } catch (error) {
+                showStatusMessage('Erro ao processar o arquivo: ' + error.message, true);
+            }
+        };
+        
+        reader.onerror = () => {
+            showStatusMessage('Erro ao ler o arquivo', true);
+        };
+        
+        reader.readAsText(file);
+    }
+    
+    // Event listeners para exportar e importar
+    exportConfigButton.addEventListener('click', exportConfigurations);
+    
+    importConfigButton.addEventListener('click', () => {
+        importFileInput.click();
+    });
+    
+    importFileInput.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (file) {
+            importConfigurations(file);
+        }
+    });
 }); 
